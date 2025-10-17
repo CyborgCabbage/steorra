@@ -1,12 +1,8 @@
-﻿/*This source code copyrighted by Lazy Foo' Productions 2004-2025
-and may not be redistributed without written permission.*/
-
-/* Headers */
-//Using SDL and STL string
-#include <SDL3/SDL.h>
+﻿#include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #include <string>
 #include <memory>
+#include <iostream>
 
 constexpr int kScreenWidth{ 640 };
 constexpr int kScreenHeight{ 480 };
