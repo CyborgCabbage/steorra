@@ -19,7 +19,15 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="src\game.cpp" />
     <ClCompile Include="src\steorra.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\game.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="vcpkg-configuration.json" />
+    <None Include="vcpkg.json" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
