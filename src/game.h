@@ -5,6 +5,7 @@
 #include <deque>
 #include <functional>
 #include <vma/vk_mem_alloc.h>
+#include <graphics/graphics_memory.h>
 
 const unsigned FRAME_OVERLAP = 2;
 
@@ -16,20 +17,6 @@ const unsigned FRAME_OVERLAP = 2;
 			abort();\
 		}\
 	} while (0)
-
-struct DeletionQueue {
-	std::deque<std::function<void()>> _deletors;
-	void PushFunction(std::function<void()>&& function);
-	void Flush();
-};
-
-struct AllocatedImage {
-	VkImage _image;
-	VkImageView _imageView;
-	VmaAllocation _allocation;
-	VkExtent3D _imageExtent;
-	VkFormat _imageFormat;
-};
 
 class Game {
 public:
@@ -63,6 +50,13 @@ private:
 	int32_t _frameNumber = 0;
 	DeletionQueue _mainDeletionQueue;
 	VmaAllocator _allocator;
+	struct AllocatedImage {
+		VkImage _image;
+		VkImageView _imageView;
+		VmaAllocation _allocation;
+		VkExtent3D _imageExtent;
+		VkFormat _imageFormat;
+	};
 	AllocatedImage _drawImage;
 };
 

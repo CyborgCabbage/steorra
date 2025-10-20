@@ -1,0 +1,12 @@
+#include "graphics_memory.h"
+
+void DeletionQueue::PushFunction(std::function<void()>&& function) {
+	_deletors.push_back(function);
+}
+
+void DeletionQueue::Flush() {
+	for (auto it = _deletors.rbegin(); it != _deletors.rend(); it++) {
+		(*it)();
+	}
+	_deletors.clear();
+}

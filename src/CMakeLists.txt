@@ -1,4 +1,5 @@
-add_executable (steorra "steorra.cpp" "game.cpp" "game.h" "graphics/graphics_data.cpp" "graphics/graphics_data.h" "graphics/graphics_command.cpp" "graphics/graphics_command.h")
+add_executable (steorra "steorra.cpp" "game.cpp" "game.h" "graphics/graphics_data.cpp" "graphics/graphics_data.h" "graphics/graphics_command.cpp" "graphics/graphics_command.h" "graphics/graphics_memory.h" "graphics/graphics_memory.cpp")
+target_include_directories(steorra PRIVATE "")
 target_include_directories(steorra PRIVATE ${Vulkan_INCLUDE_DIRS})
 target_link_libraries(steorra PRIVATE ${Vulkan_LIBRARIES})
 target_link_libraries(steorra PRIVATE glm::glm)
