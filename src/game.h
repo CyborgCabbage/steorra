@@ -2,6 +2,9 @@
 #include <SDL3/SDL_video.h>
 #include <VkBootstrap.h>
 #include <array>
+#include <deque>
+#include <functional>
+#include <vma/vk_mem_alloc.h>
 
 const unsigned FRAME_OVERLAP = 2;
 
@@ -14,6 +17,20 @@ const unsigned FRAME_OVERLAP = 2;
 		}\
 	} while (0)
 
+struct DeletionQueue {
+	std::deque<std::function<void()>> _deletors;
+	void PushFunction(std::function<void()>&& function);
+	void Flush();
+};
+
+struct AllocatedImage {
+	VkImage _image;
+	VkImageView _imageView;
+	VmaAllocation _allocation;
+	VkExtent3D _imageExtent;
+	VkFormat _imageFormat;
+};
+
 class Game {
 public:
 	Game();
@@ -25,6 +42,7 @@ private:
 		VkCommandBuffer _cmdBuffer;
 		VkSemaphore _swapchainSemaphore;
 		VkFence _renderFence;
+		DeletionQueue _deletionQueue;
 	};
 	struct SwapChainData {
 		VkImage _image;
@@ -43,5 +61,8 @@ private:
 	VkQueue _graphicsQueue;
 	uint32_t _graphicsQueueFamilyIndex;
 	int32_t _frameNumber = 0;
+	DeletionQueue _mainDeletionQueue;
+	VmaAllocator _allocator;
+	AllocatedImage _drawImage;
 };
 

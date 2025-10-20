@@ -1,5 +1,6 @@
 {
   "dependencies": [
+    "glm",
     {
       "name": "sdl3",
       "features": [
@@ -7,6 +8,6 @@
       ]
     },
     "vk-bootstrap",
-    "glm"
+    "vulkan-memory-allocator"
   ]
 }
