@@ -4,9 +4,46 @@
 #include <SDL3/SDL_log.h>
 #include <iostream>
 #include <VkBootstrap.h>
+#define VMA_IMPLEMENTATION
+#include <vma/vk_mem_alloc.h>
 
 constexpr int kScreenWidth{ 640 };
 constexpr int kScreenHeight{ 480 };
+
+VkImageCreateInfo ImageCreateInfo(VkFormat format, VkImageUsageFlags usageFlags, VkExtent3D extent) {
+	VkImageCreateInfo info = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+		.imageType = VK_IMAGE_TYPE_2D,
+		.format = format,
+		.extent = extent,
+		.mipLevels = 1,
+		.arrayLayers = 1,
+		//for MSAA. we will not be using it by default, so default it to 1 sample per pixel.
+		.samples = VK_SAMPLE_COUNT_1_BIT,
+		//optimal tiling, which means the image is stored on the best gpu format
+		.tiling = VK_IMAGE_TILING_OPTIMAL,
+		.usage = usageFlags,
+	};
+	return info;
+}
+
+VkImageViewCreateInfo ImageViewCreateInfo(VkFormat format, VkImage image, VkImageAspectFlags aspectFlags) {
+	// build a image-view for the depth image to use for rendering
+	VkImageViewCreateInfo info = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+		.image = image,
+		.viewType = VK_IMAGE_VIEW_TYPE_2D,
+		.format = format,
+		.subresourceRange = {
+			.aspectMask = aspectFlags,
+			.baseMipLevel = 0,
+			.levelCount = 1,
+			.baseArrayLayer = 0,
+			.layerCount = 1,
+		}
+	};
+	return info;
+}
 
 Game::Game() {
 	// Init SDL
@@ -63,6 +100,17 @@ Game::Game() {
 		std::exit(EXIT_FAILURE);
 	}
 	_device = deviceBuildResult.value();
+	// Memory allocator
+	VmaAllocatorCreateInfo allocatorInfo = {
+		.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT,
+		.physicalDevice = _device.physical_device,
+		.device = _device,
+		.instance = _instance,
+	};
+	vmaCreateAllocator(&allocatorInfo, &_allocator);
+	_mainDeletionQueue.PushFunction([&]() {
+		vmaDestroyAllocator(_allocator);
+	});
 	// Create Swapchain
 	auto swapchainBuildResult = vkb::SwapchainBuilder{ _device }
 		//.use_default_format_selection()
@@ -83,6 +131,38 @@ Game::Game() {
 	for (int i = 0; i < swapchainImages.size(); i++) {
 		_swapchainImages.push_back({swapchainImages[i], swapchainImageViews[i]});
 	}
+	//draw image size will match the window
+	VkExtent3D drawImageExtent = ToExtent3D(_swapchain.extent);
+
+	//hardcoding the draw format to 16 bit float
+	_drawImage._imageFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
+	_drawImage._imageExtent = drawImageExtent;
+
+	VkImageUsageFlags drawImageUsages{};
+	drawImageUsages |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+	drawImageUsages |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+	drawImageUsages |= VK_IMAGE_USAGE_STORAGE_BIT;
+	drawImageUsages |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+
+	VkImageCreateInfo rimgInfo = ImageCreateInfo(_drawImage._imageFormat, drawImageUsages, drawImageExtent);
+
+	//for the draw image, we want to allocate it from gpu local memory
+	VmaAllocationCreateInfo rimgAllocInfo = {};
+	rimgAllocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+	rimgAllocInfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+	//allocate and create the image
+	vmaCreateImage(_allocator, &rimgInfo, &rimgAllocInfo, &_drawImage._image, &_drawImage._allocation, nullptr);
+
+	//build a image-view for the draw image to use for rendering
+	VkImageViewCreateInfo drawImageViewCreateInfo = ImageViewCreateInfo(_drawImage._imageFormat, _drawImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
+	VK_CHECK_abort(vkCreateImageView(_device, &drawImageViewCreateInfo, nullptr, &_drawImage._imageView));
+
+	//add to deletion queues
+	_mainDeletionQueue.PushFunction([=]() {
+		vkDestroyImageView(_device, _drawImage._imageView, nullptr);
+		vmaDestroyImage(_allocator, _drawImage._image, _drawImage._allocation);
+	});
 	// Create Queue
 	_graphicsQueue = _device.get_queue(vkb::QueueType::graphics).value();
 	_graphicsQueueFamilyIndex = _device.get_queue_index(vkb::QueueType::graphics).value();
@@ -121,11 +201,13 @@ Game::Game() {
 
 Game::~Game() {
 	vkDeviceWaitIdle(_device);
-	for (const auto& frame : _frames) {
+	for (auto& frame : _frames) {
 		vkDestroyCommandPool(_device, frame._cmdPool, nullptr);
 		vkDestroyFence(_device, frame._renderFence, nullptr);
 		vkDestroySemaphore(_device, frame._swapchainSemaphore, nullptr);
+		frame._deletionQueue.Flush();
 	}
+	_mainDeletionQueue.Flush();
 	for (const auto& image : _swapchainImages) {
 		vkDestroySemaphore(_device, image._renderSemaphore, nullptr);
 		vkDestroyImageView(_device, image._imageView, nullptr);
@@ -186,6 +268,40 @@ void TransitionImage(VkCommandBuffer cmd, VkImage image, VkImageLayout currentLa
 	vkCmdPipelineBarrier2(cmd, &depInfo);
 }
 
+void CopyImageToImage(VkCommandBuffer cmd, VkImage source, VkImage destination, VkExtent2D srcSize, VkExtent2D dstSize) {
+	VkImageBlit2 blitRegion{ .sType = VK_STRUCTURE_TYPE_IMAGE_BLIT_2 };
+
+	blitRegion.srcOffsets[1].x = srcSize.width;
+	blitRegion.srcOffsets[1].y = srcSize.height;
+	blitRegion.srcOffsets[1].z = 1;
+
+	blitRegion.dstOffsets[1].x = dstSize.width;
+	blitRegion.dstOffsets[1].y = dstSize.height;
+	blitRegion.dstOffsets[1].z = 1;
+
+	blitRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	blitRegion.srcSubresource.baseArrayLayer = 0;
+	blitRegion.srcSubresource.layerCount = 1;
+	blitRegion.srcSubresource.mipLevel = 0;
+
+	blitRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	blitRegion.dstSubresource.baseArrayLayer = 0;
+	blitRegion.dstSubresource.layerCount = 1;
+	blitRegion.dstSubresource.mipLevel = 0;
+
+	VkBlitImageInfo2 blitInfo{ .sType = VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2 };
+	blitInfo.dstImage = destination;
+	blitInfo.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	blitInfo.srcImage = source;
+	blitInfo.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	blitInfo.filter = VK_FILTER_LINEAR;
+	blitInfo.regionCount = 1;
+	blitInfo.pRegions = &blitRegion;
+
+	vkCmdBlitImage2(cmd, &blitInfo);
+}
+
+
 VkSemaphoreSubmitInfo SemaphoreSubmitInfo(VkPipelineStageFlags2 stageMask, VkSemaphore semaphore) {
 	VkSemaphoreSubmitInfo submitInfo{
 		.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
@@ -223,6 +339,13 @@ VkSubmitInfo2 SubmitInfo(VkCommandBufferSubmitInfo* cmd, VkSemaphoreSubmitInfo* 
 	return info;
 }
 
+VkExtent2D ToExtent2D(VkExtent3D extent3d) 	{
+	return {extent3d.width, extent3d.height};
+}
+
+VkExtent3D ToExtent3D(VkExtent2D extent2d, unsigned depth = 1) {
+	return { extent2d.width, extent2d.height, depth };
+}
 
 void Game::Draw() {
 	// Wait for previous frame to finish rendering
@@ -230,6 +353,7 @@ void Game::Draw() {
 	auto& frame = GetCurrentFrame();
 
 	VK_CHECK_abort(vkWaitForFences(_device, 1, &frame._renderFence, true, ONE_SECOND));
+	frame._deletionQueue.Flush();
 	VK_CHECK_abort(vkResetFences(_device, 1, &frame._renderFence));
 
 	uint32_t swapchainImageIndex;
@@ -241,9 +365,13 @@ void Game::Draw() {
 		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
 		.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
 	};
+
 	VK_CHECK_abort(vkBeginCommandBuffer(cmd, &cmdBufferBeginInfo));
 
-	TransitionImage(cmd, image._image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+	// transition our main draw image into general layout so we can write into it
+	// we will overwrite it all so we dont care about what was the older layout
+	TransitionImage(cmd, _drawImage._image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+
 	float flash = std::abs(std::sin(_frameNumber / 120.f));
 	VkClearColorValue clearValue{
 		.float32 = { 0.0f, 0.0f, flash, 1.0f }
@@ -251,10 +379,17 @@ void Game::Draw() {
 	VkImageSubresourceRange clearRange = ImageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
 
 	//clear image
-	vkCmdClearColorImage(cmd, image._image, VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
+	vkCmdClearColorImage(cmd, _drawImage._image, VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
 
-	//make the swapchain image into presentable mode
-	TransitionImage(cmd, image._image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+	//transition the draw image and the swapchain image into their correct transfer layouts
+	TransitionImage(cmd, _drawImage._image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+	TransitionImage(cmd, image._image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+	// execute a copy from the draw image into the swapchain
+	CopyImageToImage(cmd, _drawImage._image, image._image, ToExtent2D(_drawImage._imageExtent), _swapchain.extent);
+
+	// set swapchain image layout to Present so we can show it on the screen
+	TransitionImage(cmd, image._image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
 	//finalize the command buffer (we can no longer add commands, but it can now be executed)
 	VK_CHECK_abort(vkEndCommandBuffer(cmd));
@@ -283,4 +418,15 @@ void Game::Draw() {
 
 Game::FrameData& Game::GetCurrentFrame() {
 	return _frames[_frameNumber % FRAME_OVERLAP];
+}
+
+void DeletionQueue::PushFunction(std::function<void()>&& function) {
+	_deletors.push_back(function);
+}
+
+void DeletionQueue::Flush() {
+	for (auto it = _deletors.rbegin(); it != _deletors.rend(); it++) {
+		(*it)();
+	}
+	_deletors.clear();
 }
