@@ -1,3 +1,4 @@
+#pragma once
 #include <vulkan/vulkan.h>
 
 VkImageCreateInfo ImageCreateInfo(VkFormat format, VkImageUsageFlags usageFlags, VkExtent3D extent);

@@ -6,17 +6,9 @@
 #include <functional>
 #include <vma/vk_mem_alloc.h>
 #include <graphics/graphics_memory.h>
+#include <graphics/graphics_shaders.h>
 
 const unsigned FRAME_OVERLAP = 2;
-
-#define VK_CHECK_abort(x)\
-	do {\
-		VkResult err = x;\
-		if (err) {\
-			std::cout <<"Detected Vulkan error: " << err << std::endl;\
-			abort();\
-		}\
-	} while (0)
 
 class Game {
 public:
@@ -58,5 +50,10 @@ private:
 		VkFormat _imageFormat;
 	};
 	AllocatedImage _drawImage;
+	DescriptorAllocator _globalDescriptorAllocator;
+	VkDescriptorSet _drawImageDescriptors;
+	VkDescriptorSetLayout _drawImageDescriptorLayout;
+	VkPipeline _gradientPipeline;
+	VkPipelineLayout _gradientPipelineLayout;
 };
 
