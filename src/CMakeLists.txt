@@ -1,4 +1,4 @@
-add_executable (steorra "steorra.cpp" "game.cpp" "game.h" "graphics/graphics_data.cpp" "graphics/graphics_data.h" "graphics/graphics_command.cpp" "graphics/graphics_command.h" "graphics/graphics_memory.h" "graphics/graphics_memory.cpp" "graphics/graphics_shaders.h" "graphics/graphics_shaders.cpp" "graphics/graphics_errors.h")
+add_executable (steorra "steorra.cpp" "game.cpp" "game.h"  "graphics/graphics_data.h" "graphics/graphics_command.cpp" "graphics/graphics_command.h" "graphics/graphics_memory.h" "graphics/graphics_memory.cpp" "graphics/graphics_shaders.h" "graphics/graphics_shaders.cpp" "graphics/graphics_errors.h")
 
 target_include_directories(steorra PRIVATE "")
 target_include_directories(steorra PRIVATE ${Vulkan_INCLUDE_DIRS})
@@ -8,6 +8,7 @@ target_link_libraries(steorra PRIVATE glm::glm)
 #target_link_libraries(main PRIVATE glm::glm-header-only)
 target_link_libraries(steorra PRIVATE SDL3::SDL3)
 target_link_libraries(steorra PRIVATE vk-bootstrap::vk-bootstrap)
+target_link_libraries(steorra PRIVATE imgui::imgui)
 
 file(GLOB_RECURSE GLSL_SOURCE_FILES
     "${PROJECT_SOURCE_DIR}/assets/shaders/*.frag"

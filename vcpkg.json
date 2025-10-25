@@ -8,6 +8,13 @@
       ]
     },
     "vk-bootstrap",
-    "vulkan-memory-allocator"
+    "vulkan-memory-allocator",
+    {
+      "name": "imgui",
+      "features": [
+        "sdl3-binding",
+        "vulkan-binding"
+      ]
+    }
   ]
 }

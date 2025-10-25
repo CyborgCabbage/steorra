@@ -6,6 +6,9 @@
 #include <VkBootstrap.h>
 #define VMA_IMPLEMENTATION
 #include <vma/vk_mem_alloc.h>
+#include <imgui.h>
+#include <imgui_impl_sdl3.h>
+#include <imgui_impl_vulkan.h>
 #include <graphics/graphics_data.h>
 #include <graphics/graphics_command.h>
 #include <graphics/graphics_errors.h>
@@ -136,21 +139,21 @@ Game::Game() {
 	_graphicsQueue = _device.get_queue(vkb::QueueType::graphics).value();
 	_graphicsQueueFamilyIndex = _device.get_queue_index(vkb::QueueType::graphics).value();
 	// Init command pools and buffers
-	VkCommandPoolCreateInfo commandPoolInfo = {
-		.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-		.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-		.queueFamilyIndex = _graphicsQueueFamilyIndex
-	};
-	VkCommandBufferAllocateInfo cmdAllocInfo = {
-		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-		.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-		.commandBufferCount = 1
-	};
+	VkCommandPoolCreateInfo commandPoolInfo = CommandPoolCreateInfo(_graphicsQueueFamilyIndex);
 	for (auto& frame : _frames) {
 		VK_CHECK_abort(vkCreateCommandPool(_device, &commandPoolInfo, nullptr, &frame._cmdPool));
-		cmdAllocInfo.commandPool = frame._cmdPool;
-		VK_CHECK_abort(vkAllocateCommandBuffers(_device, &cmdAllocInfo, &frame._cmdBuffer));
+		const auto allocateInfo = CommandBufferAllocateInfo(frame._cmdPool);
+		VK_CHECK_abort(vkAllocateCommandBuffers(_device, &allocateInfo, &frame._cmdBuffer));
 	}
+	VK_CHECK_abort(vkCreateCommandPool(_device, &commandPoolInfo, nullptr, &_immediateCommandPool));
+
+	// allocate the command buffer for immediate submits
+	const auto allocateInfo = CommandBufferAllocateInfo(_immediateCommandPool);
+	VK_CHECK_abort(vkAllocateCommandBuffers(_device, &allocateInfo, &_immediateCommandBuffer));
+
+	_mainDeletionQueue.PushFunction([=]() {
+		vkDestroyCommandPool(_device, _immediateCommandPool, nullptr);
+	});
 	// Create Sync structures
 	VkFenceCreateInfo fenceCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
@@ -166,6 +169,9 @@ Game::Game() {
 	for (auto& image : _swapchainImages) {
 		VK_CHECK_abort(vkCreateSemaphore(_device, &semaphoreCreateInfo, nullptr, &image._renderSemaphore));
 	}
+	VK_CHECK_abort(vkCreateFence(_device, &fenceCreateInfo, nullptr, &_immediateFence));
+	_mainDeletionQueue.PushFunction([=]() { vkDestroyFence(_device, _immediateFence, nullptr); });
+
 	// Create Descriptors
 	std::vector<DescriptorAllocator::PoolSizeRatio> sizes =
 	{
@@ -235,6 +241,7 @@ Game::Game() {
 		vkDestroyPipelineLayout(_device, _gradientPipelineLayout, nullptr);
 		vkDestroyPipeline(_device, _gradientPipeline, nullptr);
 	});
+	InitImgui();
 }
 
 Game::~Game() {
@@ -265,7 +272,18 @@ void Game::Run() {
 			if (e.type == SDL_EVENT_QUIT) {
 				return;
 			}
+			ImGui_ImplSDL3_ProcessEvent(&e);
 		}
+		// imgui new frame
+		ImGui_ImplVulkan_NewFrame();
+		ImGui_ImplSDL3_NewFrame();
+		ImGui::NewFrame();
+
+		//some imgui UI to test
+		ImGui::ShowDemoWindow();
+
+		//make imgui calculate internal draw structures
+		ImGui::Render();
 		Draw();
 		_frameNumber++;
 	}
@@ -285,11 +303,7 @@ void Game::Draw() {
 	auto& image = _swapchainImages[swapchainImageIndex];
 	VkCommandBuffer cmd = frame._cmdBuffer;
 	VK_CHECK_abort(vkResetCommandBuffer(cmd, 0));
-	VkCommandBufferBeginInfo cmdBufferBeginInfo = {
-		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-		.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
-	};
-
+	VkCommandBufferBeginInfo cmdBufferBeginInfo = CommandBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
 	VK_CHECK_abort(vkBeginCommandBuffer(cmd, &cmdBufferBeginInfo));
 
 	// transition our main draw image into general layout so we can write into it
@@ -303,7 +317,7 @@ void Game::Draw() {
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _gradientPipelineLayout, 0, 1, &_drawImageDescriptors, 0, nullptr);
 
 	// execute the compute pipeline dispatch. We are using 16x16 workgroup size so we need to divide by it
-	vkCmdDispatch(cmd, std::ceil(_drawImage._imageExtent.width / 16.0), std::ceil(_drawImage._imageExtent.height / 16.0), 1);
+	vkCmdDispatch(cmd, (uint32_t)std::ceil(_drawImage._imageExtent.width / 16.0), (uint32_t)std::ceil(_drawImage._imageExtent.height / 16.0), 1);
 
 	//transition the draw image and the swapchain image into their correct transfer layouts
 	TransitionImage(cmd, _drawImage._image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
@@ -312,8 +326,14 @@ void Game::Draw() {
 	// execute a copy from the draw image into the swapchain
 	CopyImageToImage(cmd, _drawImage._image, image._image, ToExtent2D(_drawImage._imageExtent), _swapchain.extent);
 
-	// set swapchain image layout to Present so we can show it on the screen
-	TransitionImage(cmd, image._image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+	// set swapchain image layout to Attachment Optimal so we can draw it
+	TransitionImage(cmd, image._image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+	//draw imgui into the swapchain image
+	DrawImgui(cmd, image._imageView);
+
+	// set swapchain image layout to Present so we can draw it
+	TransitionImage(cmd, image._image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
 	//finalize the command buffer (we can no longer add commands, but it can now be executed)
 	VK_CHECK_abort(vkEndCommandBuffer(cmd));
@@ -338,6 +358,101 @@ void Game::Draw() {
 		.pImageIndices = &swapchainImageIndex,
 	};
 	VK_CHECK_abort(vkQueuePresentKHR(_graphicsQueue, &presentInfo));
+}
+
+void Game::ImmediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function) {
+	VK_CHECK_abort(vkResetFences(_device, 1, &_immediateFence));
+	VK_CHECK_abort(vkResetCommandBuffer(_immediateCommandBuffer, 0));
+
+	VkCommandBuffer cmd = _immediateCommandBuffer;
+
+	VkCommandBufferBeginInfo cmdBeginInfo = CommandBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+
+	VK_CHECK_abort(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
+
+	function(cmd);
+
+	VK_CHECK_abort(vkEndCommandBuffer(cmd));
+
+	VkCommandBufferSubmitInfo cmdinfo = CommandBufferSubmitInfo(cmd);
+	VkSubmitInfo2 submit = SubmitInfo(&cmdinfo, nullptr, nullptr);
+
+	// submit command buffer to the queue and execute it.
+	//  _renderFence will now block until the graphic commands finish execution
+	VK_CHECK_abort(vkQueueSubmit2(_graphicsQueue, 1, &submit, _immediateFence));
+
+	VK_CHECK_abort(vkWaitForFences(_device, 1, &_immediateFence, true, 9999999999));
+}
+
+void Game::InitImgui() {
+	// 1: create descriptor pool for IMGUI
+	//  the size of the pool is very oversize, but it's copied from imgui demo
+	//  itself.
+	VkDescriptorPoolSize pool_sizes[] = { { VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
+		{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
+		{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
+		{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
+		{ VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
+		{ VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
+		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
+		{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
+		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
+		{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
+		{ VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 } };
+
+	VkDescriptorPoolCreateInfo pool_info = {};
+	pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+	pool_info.maxSets = 1000;
+	pool_info.poolSizeCount = (uint32_t)std::size(pool_sizes);
+	pool_info.pPoolSizes = pool_sizes;
+
+	VkDescriptorPool imguiPool;
+	VK_CHECK_abort(vkCreateDescriptorPool(_device, &pool_info, nullptr, &imguiPool));
+
+	// 2: initialize imgui library
+
+	// this initializes the core structures of imgui
+	ImGui::CreateContext();
+
+	// this initializes imgui for SDL
+	ImGui_ImplSDL3_InitForVulkan(_window);
+
+	// this initializes imgui for Vulkan
+	ImGui_ImplVulkan_InitInfo init_info = {};
+	init_info.Instance = _instance;
+	init_info.PhysicalDevice = _device.physical_device;
+	init_info.Device = _device;
+	init_info.Queue = _graphicsQueue;
+	init_info.DescriptorPool = imguiPool;
+	init_info.MinImageCount = 3;
+	init_info.ImageCount = 3;
+	init_info.UseDynamicRendering = true;
+
+	//dynamic rendering parameters for imgui to use
+	init_info.PipelineRenderingCreateInfo = { .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO };
+	init_info.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
+	init_info.PipelineRenderingCreateInfo.pColorAttachmentFormats = &_swapchain.image_format;
+
+	init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+
+	ImGui_ImplVulkan_Init(&init_info);
+
+	ImGui_ImplVulkan_CreateFontsTexture();
+
+	// add the destroy the imgui created structures
+	_mainDeletionQueue.PushFunction([=]() {
+		ImGui_ImplVulkan_Shutdown();
+		vkDestroyDescriptorPool(_device, imguiPool, nullptr);
+	});
+}
+
+void Game::DrawImgui(VkCommandBuffer cmd, VkImageView targetImageView) {
+	VkRenderingAttachmentInfo colorAttachment = RenderingAttachmentInfo(targetImageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+	VkRenderingInfo renderInfo = RenderingInfo(_swapchain.extent, &colorAttachment, nullptr);
+	vkCmdBeginRendering(cmd, &renderInfo);
+	ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
+	vkCmdEndRendering(cmd);
 }
 
 Game::FrameData& Game::GetCurrentFrame() {

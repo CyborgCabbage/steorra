@@ -55,5 +55,12 @@ private:
 	VkDescriptorSetLayout _drawImageDescriptorLayout;
 	VkPipeline _gradientPipeline;
 	VkPipelineLayout _gradientPipelineLayout;
+	//Immediate Submit
+	VkFence _immediateFence;
+	VkCommandBuffer _immediateCommandBuffer;
+	VkCommandPool _immediateCommandPool;
+	void ImmediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function);
+	void InitImgui();
+	void DrawImgui(VkCommandBuffer cmd, VkImageView targetImageView);
 };
 
