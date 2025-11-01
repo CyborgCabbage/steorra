@@ -13,6 +13,7 @@
 #include <graphics/graphics_command.h>
 #include <graphics/graphics_errors.h>
 #include <graphics/graphics_shaders.h>
+#include <graphics/graphics_pipeline.h>
 
 constexpr int kScreenWidth{ 640 };
 constexpr int kScreenHeight{ 480 };
@@ -209,20 +210,20 @@ Game::Game() {
 		_globalDescriptorAllocator.DestroyPool(_device);
 		vkDestroyDescriptorSetLayout(_device, _drawImageDescriptorLayout, nullptr);
 	});
-	// Create Pipelines
-	VkPushConstantRange pushConstant{
+	// Compute Pipeline
+	VkPushConstantRange pushConstantRange{
 		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
 		.offset = 0,
 		.size = sizeof(ComputePushConstants),
 	};
-	VkPipelineLayoutCreateInfo computeLayout{
+	VkPipelineLayoutCreateInfo computeLayoutInfo{
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
 		.setLayoutCount = 1,
 		.pSetLayouts = &_drawImageDescriptorLayout,
 		.pushConstantRangeCount = 1,
-		.pPushConstantRanges = &pushConstant,
+		.pPushConstantRanges = &pushConstantRange,
 	};
-	VK_CHECK_abort(vkCreatePipelineLayout(_device, &computeLayout, nullptr, &_gradientPipelineLayout));
+	VK_CHECK_abort(vkCreatePipelineLayout(_device, &computeLayoutInfo, nullptr, &_gradientPipelineLayout));
 	VkShaderModule computeDrawShader;
 	if (!LoadShaderModule("gradient.comp", _device, &computeDrawShader)) {
 		std::cout << "Error when building the compute shader \n";
@@ -248,6 +249,41 @@ Game::Game() {
 		vkDestroyPipelineLayout(_device, _gradientPipelineLayout, nullptr);
 		vkDestroyPipeline(_device, _gradientPipeline, nullptr);
 	});
+
+	// Triangle Pipeline
+	VkShaderModule triangleFragShader;
+	if (!LoadShaderModule("colored_triangle.frag", _device, &triangleFragShader)) {
+		std::cout << "Error when building the triangle fragment shader module \n";
+		std::exit(EXIT_FAILURE);
+	}
+
+	VkShaderModule triangleVertShader;
+	if (!LoadShaderModule("colored_triangle.vert", _device, &triangleVertShader)) {
+		std::cout << "Error when building the triangle vertex shader module \n";
+		std::exit(EXIT_FAILURE);
+	}
+
+	//build the pipeline layout that controls the inputs/outputs of the shader
+	//we are not using descriptor sets or other systems yet, so no need to use anything other than empty default
+	VkPipelineLayoutCreateInfo triangleLayoutInfo{
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+	};
+	VK_CHECK_abort(vkCreatePipelineLayout(_device, &triangleLayoutInfo, nullptr, &_trianglePipelineLayout));
+
+	PipelineBuilder pipelineBuilder;
+	pipelineBuilder._pipelineLayout = _trianglePipelineLayout;
+	pipelineBuilder.SetShaders(triangleVertShader, triangleFragShader);
+	pipelineBuilder.SetColorAttachmentFormat(_drawImage._imageFormat);
+	// Leaving depth undefined
+	_trianglePipeline = pipelineBuilder.BuildPipeline(_device);
+	vkDestroyShaderModule(_device, triangleFragShader, nullptr);
+	vkDestroyShaderModule(_device, triangleVertShader, nullptr);
+
+	_mainDeletionQueue.PushFunction([&]() {
+		vkDestroyPipelineLayout(_device, _trianglePipelineLayout, nullptr);
+		vkDestroyPipeline(_device, _trianglePipeline, nullptr);
+	});
+
 	InitImgui();
 }
 
@@ -317,22 +353,14 @@ void Game::Draw() {
 	// we will overwrite it all so we dont care about what was the older layout
 	TransitionImage(cmd, _drawImage._image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
 
-	// bind the gradient drawing compute pipeline
-	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _gradientPipeline);
+	DrawBackground(cmd);
 
-	// bind the descriptor set containing the draw image for the compute pipeline
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _gradientPipelineLayout, 0, 1, &_drawImageDescriptors, 0, nullptr);
+	TransitionImage(cmd, _drawImage._image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
-	ComputePushConstants pc;
-	pc.data1 = glm::vec4(1, 0, 0, 1);
-	pc.data2 = glm::vec4(0, 0, 1, 1);
-
-	vkCmdPushConstants(cmd, _gradientPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &pc);
-	// execute the compute pipeline dispatch. We are using 16x16 workgroup size so we need to divide by it
-	vkCmdDispatch(cmd, (uint32_t)std::ceil(_drawImage._imageExtent.width / 16.0), (uint32_t)std::ceil(_drawImage._imageExtent.height / 16.0), 1);
+	DrawGeometry(cmd);
 
 	//transition the draw image and the swapchain image into their correct transfer layouts
-	TransitionImage(cmd, _drawImage._image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+	TransitionImage(cmd, _drawImage._image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 	TransitionImage(cmd, image._image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
 	// execute a copy from the draw image into the swapchain
@@ -370,6 +398,56 @@ void Game::Draw() {
 		.pImageIndices = &swapchainImageIndex,
 	};
 	VK_CHECK_abort(vkQueuePresentKHR(_graphicsQueue, &presentInfo));
+}
+
+void Game::DrawBackground(VkCommandBuffer cmd) {
+	// bind the gradient drawing compute pipeline
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _gradientPipeline);
+
+	// bind the descriptor set containing the draw image for the compute pipeline
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _gradientPipelineLayout, 0, 1, &_drawImageDescriptors, 0, nullptr);
+
+	ComputePushConstants pc;
+	pc.data1 = glm::vec4(1, 0, 0, 1);
+	pc.data2 = glm::vec4(0, 0, 1, 1);
+
+	vkCmdPushConstants(cmd, _gradientPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &pc);
+	// execute the compute pipeline dispatch. We are using 16x16 workgroup size so we need to divide by it
+	vkCmdDispatch(cmd, (uint32_t)std::ceil(_drawImage._imageExtent.width / 16.0), (uint32_t)std::ceil(_drawImage._imageExtent.height / 16.0), 1);
+}
+
+void Game::DrawGeometry(VkCommandBuffer cmd) {
+	//begin a render pass  connected to our draw image
+	VkRenderingAttachmentInfo colorAttachment = RenderingAttachmentInfo(_drawImage._imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+	VkRenderingInfo renderInfo = RenderingInfo(ToExtent2D(_drawImage._imageExtent), &colorAttachment, nullptr);
+	vkCmdBeginRendering(cmd, &renderInfo);
+
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _trianglePipeline);
+
+	//set dynamic viewport and scissor
+	VkViewport viewport = {};
+	viewport.x = 0;
+	viewport.y = 0;
+	viewport.width = _drawImage._imageExtent.width;
+	viewport.height = _drawImage._imageExtent.height;
+	viewport.minDepth = 0.f;
+	viewport.maxDepth = 1.f;
+
+	vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+	VkRect2D scissor = {};
+	scissor.offset.x = 0;
+	scissor.offset.y = 0;
+	scissor.extent.width = _drawImage._imageExtent.width;
+	scissor.extent.height = _drawImage._imageExtent.height;
+
+	vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+	//launch a draw command to draw 3 vertices
+	vkCmdDraw(cmd, 3, 1, 0, 0);
+
+	vkCmdEndRendering(cmd);
 }
 
 void Game::ImmediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function) {

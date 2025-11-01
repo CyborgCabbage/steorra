@@ -142,3 +142,12 @@ constexpr VkExtent2D ToExtent2D(VkExtent3D extent3d) {
 constexpr VkExtent3D ToExtent3D(VkExtent2D extent2d, unsigned depth = 1) {
 	return { extent2d.width, extent2d.height, depth };
 }
+
+constexpr VkPipelineShaderStageCreateInfo PipelineShaderStageCreateInfo(VkShaderStageFlagBits stage, VkShaderModule module) {
+	return {
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+		.stage = stage,
+		.module = module,
+		.pName = "main"
+	};
+}

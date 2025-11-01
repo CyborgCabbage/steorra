@@ -37,6 +37,8 @@ private:
 		VkSemaphore _renderSemaphore;
 	};
 	void Draw();
+	void DrawBackground(VkCommandBuffer cmd);
+	void DrawGeometry(VkCommandBuffer cmd);
 	FrameData& GetCurrentFrame();
 	SDL_Window* _window;
 	vkb::Instance _instance;
@@ -70,5 +72,7 @@ private:
 	void ImmediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function);
 	void InitImgui();
 	void DrawImgui(VkCommandBuffer cmd, VkImageView targetImageView);
+	VkPipelineLayout _trianglePipelineLayout;
+	VkPipeline _trianglePipeline;
 };
 
