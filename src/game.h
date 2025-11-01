@@ -7,8 +7,16 @@
 #include <vma/vk_mem_alloc.h>
 #include <graphics/graphics_memory.h>
 #include <graphics/graphics_shaders.h>
+#include <glm/vec4.hpp>
 
 const unsigned FRAME_OVERLAP = 2;
+
+struct ComputePushConstants {
+	glm::vec4 data1;
+	glm::vec4 data2;
+	glm::vec4 data3;
+	glm::vec4 data4;
+};
 
 class Game {
 public:
