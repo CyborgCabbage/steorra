@@ -108,8 +108,8 @@ Game::Game() {
 	VkExtent3D drawImageExtent = ToExtent3D(_swapchain.extent);
 
 	//hardcoding the draw format to 16 bit float
-	_drawImage._imageFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
-	_drawImage._imageExtent = drawImageExtent;
+	_drawImage.imageFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
+	_drawImage.imageExtent = drawImageExtent;
 
 	VkImageUsageFlags drawImageUsages{};
 	drawImageUsages |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
@@ -117,7 +117,7 @@ Game::Game() {
 	drawImageUsages |= VK_IMAGE_USAGE_STORAGE_BIT;
 	drawImageUsages |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
-	VkImageCreateInfo rimgInfo = ImageCreateInfo(_drawImage._imageFormat, drawImageUsages, drawImageExtent);
+	VkImageCreateInfo rimgInfo = ImageCreateInfo(_drawImage.imageFormat, drawImageUsages, drawImageExtent);
 
 	//for the draw image, we want to allocate it from gpu local memory
 	VmaAllocationCreateInfo rimgAllocInfo = {};
@@ -125,16 +125,16 @@ Game::Game() {
 	rimgAllocInfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
 	//allocate and create the image
-	vmaCreateImage(_allocator, &rimgInfo, &rimgAllocInfo, &_drawImage._image, &_drawImage._allocation, nullptr);
+	vmaCreateImage(_allocator, &rimgInfo, &rimgAllocInfo, &_drawImage.image, &_drawImage.allocation, nullptr);
 
 	//build a image-view for the draw image to use for rendering
-	VkImageViewCreateInfo drawImageViewCreateInfo = ImageViewCreateInfo(_drawImage._imageFormat, _drawImage._image, VK_IMAGE_ASPECT_COLOR_BIT);
-	VK_CHECK_abort(vkCreateImageView(_device, &drawImageViewCreateInfo, nullptr, &_drawImage._imageView));
+	VkImageViewCreateInfo drawImageViewCreateInfo = ImageViewCreateInfo(_drawImage.imageFormat, _drawImage.image, VK_IMAGE_ASPECT_COLOR_BIT);
+	VK_CHECK_abort(vkCreateImageView(_device, &drawImageViewCreateInfo, nullptr, &_drawImage.imageView));
 
 	//add to deletion queues
 	_mainDeletionQueue.PushFunction([=]() {
-		vkDestroyImageView(_device, _drawImage._imageView, nullptr);
-		vmaDestroyImage(_allocator, _drawImage._image, _drawImage._allocation);
+		vkDestroyImageView(_device, _drawImage.imageView, nullptr);
+		vmaDestroyImage(_allocator, _drawImage.image, _drawImage.allocation);
 	});
 	// Create Queue
 	_graphicsQueue = _device.get_queue(vkb::QueueType::graphics).value();
@@ -142,9 +142,9 @@ Game::Game() {
 	// Init command pools and buffers
 	VkCommandPoolCreateInfo commandPoolInfo = CommandPoolCreateInfo(_graphicsQueueFamilyIndex);
 	for (auto& frame : _frames) {
-		VK_CHECK_abort(vkCreateCommandPool(_device, &commandPoolInfo, nullptr, &frame._cmdPool));
-		const auto allocateInfo = CommandBufferAllocateInfo(frame._cmdPool);
-		VK_CHECK_abort(vkAllocateCommandBuffers(_device, &allocateInfo, &frame._cmdBuffer));
+		VK_CHECK_abort(vkCreateCommandPool(_device, &commandPoolInfo, nullptr, &frame.cmdPool));
+		const auto allocateInfo = CommandBufferAllocateInfo(frame.cmdPool);
+		VK_CHECK_abort(vkAllocateCommandBuffers(_device, &allocateInfo, &frame.cmdBuffer));
 	}
 	VK_CHECK_abort(vkCreateCommandPool(_device, &commandPoolInfo, nullptr, &_immediateCommandPool));
 
@@ -164,11 +164,11 @@ Game::Game() {
 		.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
 	};
 	for (auto& frame : _frames) {
-		VK_CHECK_abort(vkCreateFence(_device, &fenceCreateInfo, nullptr, &frame._renderFence));
-		VK_CHECK_abort(vkCreateSemaphore(_device, &semaphoreCreateInfo, nullptr, &frame._swapchainSemaphore));
+		VK_CHECK_abort(vkCreateFence(_device, &fenceCreateInfo, nullptr, &frame.renderFence));
+		VK_CHECK_abort(vkCreateSemaphore(_device, &semaphoreCreateInfo, nullptr, &frame.swapchainSemaphore));
 	}
 	for (auto& image : _swapchainImages) {
-		VK_CHECK_abort(vkCreateSemaphore(_device, &semaphoreCreateInfo, nullptr, &image._renderSemaphore));
+		VK_CHECK_abort(vkCreateSemaphore(_device, &semaphoreCreateInfo, nullptr, &image.renderSemaphore));
 	}
 	VK_CHECK_abort(vkCreateFence(_device, &fenceCreateInfo, nullptr, &_immediateFence));
 	_mainDeletionQueue.PushFunction([=]() { vkDestroyFence(_device, _immediateFence, nullptr); });
@@ -193,7 +193,7 @@ Game::Game() {
 
 	VkDescriptorImageInfo imgInfo{};
 	imgInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-	imgInfo.imageView = _drawImage._imageView;
+	imgInfo.imageView = _drawImage.imageView;
 
 	VkWriteDescriptorSet drawImageWrite = {};
 	drawImageWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -273,7 +273,7 @@ Game::Game() {
 	PipelineBuilder pipelineBuilder;
 	pipelineBuilder._pipelineLayout = _trianglePipelineLayout;
 	pipelineBuilder.SetShaders(triangleVertShader, triangleFragShader);
-	pipelineBuilder.SetColorAttachmentFormat(_drawImage._imageFormat);
+	pipelineBuilder.SetColorAttachmentFormat(_drawImage.imageFormat);
 	// Leaving depth undefined
 	_trianglePipeline = pipelineBuilder.BuildPipeline(_device);
 	vkDestroyShaderModule(_device, triangleFragShader, nullptr);
@@ -290,15 +290,15 @@ Game::Game() {
 Game::~Game() {
 	vkDeviceWaitIdle(_device);
 	for (auto& frame : _frames) {
-		vkDestroyCommandPool(_device, frame._cmdPool, nullptr);
-		vkDestroyFence(_device, frame._renderFence, nullptr);
-		vkDestroySemaphore(_device, frame._swapchainSemaphore, nullptr);
-		frame._deletionQueue.Flush();
+		vkDestroyCommandPool(_device, frame.cmdPool, nullptr);
+		vkDestroyFence(_device, frame.renderFence, nullptr);
+		vkDestroySemaphore(_device, frame.swapchainSemaphore, nullptr);
+		frame.deletionQueue.Flush();
 	}
 	_mainDeletionQueue.Flush();
 	for (const auto& image : _swapchainImages) {
-		vkDestroySemaphore(_device, image._renderSemaphore, nullptr);
-		vkDestroyImageView(_device, image._imageView, nullptr);
+		vkDestroySemaphore(_device, image.renderSemaphore, nullptr);
+		vkDestroyImageView(_device, image.imageView, nullptr);
 	}
 	vkb::destroy_swapchain(_swapchain);
 	vkb::destroy_device(_device);
@@ -337,62 +337,62 @@ void Game::Draw() {
 	uint64_t ONE_SECOND = 1'000'000'000;
 	auto& frame = GetCurrentFrame();
 
-	VK_CHECK_abort(vkWaitForFences(_device, 1, &frame._renderFence, true, ONE_SECOND));
-	frame._deletionQueue.Flush();
-	VK_CHECK_abort(vkResetFences(_device, 1, &frame._renderFence));
+	VK_CHECK_abort(vkWaitForFences(_device, 1, &frame.renderFence, true, ONE_SECOND));
+	frame.deletionQueue.Flush();
+	VK_CHECK_abort(vkResetFences(_device, 1, &frame.renderFence));
 
 	uint32_t swapchainImageIndex;
-	VK_CHECK_abort(vkAcquireNextImageKHR(_device, _swapchain, ONE_SECOND, frame._swapchainSemaphore, nullptr, &swapchainImageIndex));
+	VK_CHECK_abort(vkAcquireNextImageKHR(_device, _swapchain, ONE_SECOND, frame.swapchainSemaphore, nullptr, &swapchainImageIndex));
 	auto& image = _swapchainImages[swapchainImageIndex];
-	VkCommandBuffer cmd = frame._cmdBuffer;
+	VkCommandBuffer cmd = frame.cmdBuffer;
 	VK_CHECK_abort(vkResetCommandBuffer(cmd, 0));
 	VkCommandBufferBeginInfo cmdBufferBeginInfo = CommandBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
 	VK_CHECK_abort(vkBeginCommandBuffer(cmd, &cmdBufferBeginInfo));
 
 	// transition our main draw image into general layout so we can write into it
 	// we will overwrite it all so we dont care about what was the older layout
-	TransitionImage(cmd, _drawImage._image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+	TransitionImage(cmd, _drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
 
 	DrawBackground(cmd);
 
-	TransitionImage(cmd, _drawImage._image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+	TransitionImage(cmd, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
 	DrawGeometry(cmd);
 
 	//transition the draw image and the swapchain image into their correct transfer layouts
-	TransitionImage(cmd, _drawImage._image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-	TransitionImage(cmd, image._image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+	TransitionImage(cmd, _drawImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+	TransitionImage(cmd, image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
 	// execute a copy from the draw image into the swapchain
-	CopyImageToImage(cmd, _drawImage._image, image._image, ToExtent2D(_drawImage._imageExtent), _swapchain.extent);
+	CopyImageToImage(cmd, _drawImage.image, image.image, ToExtent2D(_drawImage.imageExtent), _swapchain.extent);
 
 	// set swapchain image layout to Attachment Optimal so we can draw it
-	TransitionImage(cmd, image._image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+	TransitionImage(cmd, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
 	//draw imgui into the swapchain image
-	DrawImgui(cmd, image._imageView);
+	DrawImgui(cmd, image.imageView);
 
 	// set swapchain image layout to Present so we can draw it
-	TransitionImage(cmd, image._image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+	TransitionImage(cmd, image.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
 	//finalize the command buffer (we can no longer add commands, but it can now be executed)
 	VK_CHECK_abort(vkEndCommandBuffer(cmd));
 
 	VkCommandBufferSubmitInfo cmdinfo = CommandBufferSubmitInfo(cmd);
 
-	VkSemaphoreSubmitInfo waitInfo = SemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, frame._swapchainSemaphore);
-	VkSemaphoreSubmitInfo signalInfo = SemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, image._renderSemaphore);
+	VkSemaphoreSubmitInfo waitInfo = SemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, frame.swapchainSemaphore);
+	VkSemaphoreSubmitInfo signalInfo = SemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, image.renderSemaphore);
 
 	VkSubmitInfo2 submit = SubmitInfo(&cmdinfo, &signalInfo, &waitInfo);
 
 	//submit command buffer to the queue and execute it.
-	// _renderFence will now block until the graphic commands finish execution
-	VK_CHECK_abort(vkQueueSubmit2(_graphicsQueue, 1, &submit, frame._renderFence));
+	// renderFence will now block until the graphic commands finish execution
+	VK_CHECK_abort(vkQueueSubmit2(_graphicsQueue, 1, &submit, frame.renderFence));
 
 	VkPresentInfoKHR presentInfo = {
 		.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
 		.waitSemaphoreCount = 1,
-		.pWaitSemaphores = &image._renderSemaphore,
+		.pWaitSemaphores = &image.renderSemaphore,
 		.swapchainCount = 1,
 		.pSwapchains = &_swapchain.swapchain,
 		.pImageIndices = &swapchainImageIndex,
@@ -413,14 +413,14 @@ void Game::DrawBackground(VkCommandBuffer cmd) {
 
 	vkCmdPushConstants(cmd, _gradientPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &pc);
 	// execute the compute pipeline dispatch. We are using 16x16 workgroup size so we need to divide by it
-	vkCmdDispatch(cmd, (uint32_t)std::ceil(_drawImage._imageExtent.width / 16.0), (uint32_t)std::ceil(_drawImage._imageExtent.height / 16.0), 1);
+	vkCmdDispatch(cmd, (uint32_t)std::ceil(_drawImage.imageExtent.width / 16.0), (uint32_t)std::ceil(_drawImage.imageExtent.height / 16.0), 1);
 }
 
 void Game::DrawGeometry(VkCommandBuffer cmd) {
 	//begin a render pass  connected to our draw image
-	VkRenderingAttachmentInfo colorAttachment = RenderingAttachmentInfo(_drawImage._imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+	VkRenderingAttachmentInfo colorAttachment = RenderingAttachmentInfo(_drawImage.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
-	VkRenderingInfo renderInfo = RenderingInfo(ToExtent2D(_drawImage._imageExtent), &colorAttachment, nullptr);
+	VkRenderingInfo renderInfo = RenderingInfo(ToExtent2D(_drawImage.imageExtent), &colorAttachment, nullptr);
 	vkCmdBeginRendering(cmd, &renderInfo);
 
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _trianglePipeline);
@@ -429,8 +429,8 @@ void Game::DrawGeometry(VkCommandBuffer cmd) {
 	VkViewport viewport = {};
 	viewport.x = 0;
 	viewport.y = 0;
-	viewport.width = _drawImage._imageExtent.width;
-	viewport.height = _drawImage._imageExtent.height;
+	viewport.width = _drawImage.imageExtent.width;
+	viewport.height = _drawImage.imageExtent.height;
 	viewport.minDepth = 0.f;
 	viewport.maxDepth = 1.f;
 
@@ -439,8 +439,8 @@ void Game::DrawGeometry(VkCommandBuffer cmd) {
 	VkRect2D scissor = {};
 	scissor.offset.x = 0;
 	scissor.offset.y = 0;
-	scissor.extent.width = _drawImage._imageExtent.width;
-	scissor.extent.height = _drawImage._imageExtent.height;
+	scissor.extent.width = _drawImage.imageExtent.width;
+	scissor.extent.height = _drawImage.imageExtent.height;
 
 	vkCmdSetScissor(cmd, 0, 1, &scissor);
 
@@ -468,7 +468,7 @@ void Game::ImmediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function) 
 	VkSubmitInfo2 submit = SubmitInfo(&cmdinfo, nullptr, nullptr);
 
 	// submit command buffer to the queue and execute it.
-	//  _renderFence will now block until the graphic commands finish execution
+	//  renderFence will now block until the graphic commands finish execution
 	VK_CHECK_abort(vkQueueSubmit2(_graphicsQueue, 1, &submit, _immediateFence));
 
 	VK_CHECK_abort(vkWaitForFences(_device, 1, &_immediateFence, true, 9999999999));

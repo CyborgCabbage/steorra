@@ -25,16 +25,16 @@ public:
 	void Run();
 private:
 	struct FrameData {
-		VkCommandPool _cmdPool;
-		VkCommandBuffer _cmdBuffer;
-		VkSemaphore _swapchainSemaphore;
-		VkFence _renderFence;
-		DeletionQueue _deletionQueue;
+		VkCommandPool cmdPool;
+		VkCommandBuffer cmdBuffer;
+		VkSemaphore swapchainSemaphore;
+		VkFence renderFence;
+		DeletionQueue deletionQueue;
 	};
 	struct SwapChainData {
-		VkImage _image;
-		VkImageView _imageView;
-		VkSemaphore _renderSemaphore;
+		VkImage image;
+		VkImageView imageView;
+		VkSemaphore renderSemaphore;
 	};
 	void Draw();
 	void DrawBackground(VkCommandBuffer cmd);
@@ -53,11 +53,11 @@ private:
 	DeletionQueue _mainDeletionQueue;
 	VmaAllocator _allocator;
 	struct AllocatedImage {
-		VkImage _image;
-		VkImageView _imageView;
-		VmaAllocation _allocation;
-		VkExtent3D _imageExtent;
-		VkFormat _imageFormat;
+		VkImage image;
+		VkImageView imageView;
+		VmaAllocation allocation;
+		VkExtent3D imageExtent;
+		VkFormat imageFormat;
 	};
 	AllocatedImage _drawImage;
 	DescriptorAllocator _globalDescriptorAllocator;
