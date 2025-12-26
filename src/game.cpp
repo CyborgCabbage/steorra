@@ -9,6 +9,9 @@
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_vulkan.h>
+#include <glm/ext/matrix_transform.hpp>
+#include <glm/ext/matrix_clip_space.hpp> 
+#include <glm/gtc/matrix_transform.hpp>
 #include <graphics/graphics_data.h>
 #include <graphics/graphics_command.h>
 #include <graphics/graphics_errors.h>
@@ -264,9 +267,18 @@ Game::Game() {
 	}
 
 	//build the pipeline layout that controls the inputs/outputs of the shader
+	VkPushConstantRange vertexPushConstantRange{
+		.stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+		.offset = 0,
+		.size = sizeof(VertexPushConstants),
+	};
+	 
+	
 	//we are not using descriptor sets or other systems yet, so no need to use anything other than empty default
 	VkPipelineLayoutCreateInfo triangleLayoutInfo{
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+		.pushConstantRangeCount = 1,
+		.pPushConstantRanges = &vertexPushConstantRange,
 	};
 	VK_CHECK_abort(vkCreatePipelineLayout(_device, &triangleLayoutInfo, nullptr, &_trianglePipelineLayout));
 
@@ -443,6 +455,15 @@ void Game::DrawGeometry(VkCommandBuffer cmd) {
 	scissor.extent.height = _drawImage.imageExtent.height;
 
 	vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+	static int counter{0};
+	counter++;
+	auto model = glm::rotate(glm::scale(glm::mat4(1), glm::vec3(0.5)), counter * 0.1f, glm::vec3(0, 0, 1));
+	auto view = glm::lookAtRH(glm::vec3(2),glm::vec3(0),glm::vec3(0,0,1));
+	auto proj = glm::infinitePerspectiveRH_NO(glm::radians(90.0f), kScreenWidth / (float) kScreenHeight, 0.1f);
+	VertexPushConstants pc{};
+	pc.mvp = proj * view * model;
+	vkCmdPushConstants(cmd, _trianglePipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(VertexPushConstants), &pc);
 
 	//launch a draw command to draw 3 vertices
 	vkCmdDraw(cmd, 3, 1, 0, 0);
