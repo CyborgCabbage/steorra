@@ -9,6 +9,9 @@
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_vulkan.h>
+#include <fastgltf/glm_element_traits.hpp>
+#include <fastgltf/core.hpp>
+#include <fastgltf/tools.hpp>
 #include <glm/ext/matrix_transform.hpp>
 #include <glm/ext/matrix_clip_space.hpp> 
 #include <glm/gtc/matrix_transform.hpp>
@@ -134,10 +137,28 @@ Game::Game() {
 	VkImageViewCreateInfo drawImageViewCreateInfo = ImageViewCreateInfo(_drawImage.imageFormat, _drawImage.image, VK_IMAGE_ASPECT_COLOR_BIT);
 	VK_CHECK_abort(vkCreateImageView(_device, &drawImageViewCreateInfo, nullptr, &_drawImage.imageView));
 
+	//Depth Image
+	_depthImage.imageFormat = VK_FORMAT_D32_SFLOAT;
+	_depthImage.imageExtent = drawImageExtent;
+	VkImageUsageFlags depthImageUsages{};
+	depthImageUsages |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+
+	VkImageCreateInfo dimgInfo = ImageCreateInfo(_depthImage.imageFormat, depthImageUsages, drawImageExtent);
+
+	//allocate and create the image
+	vmaCreateImage(_allocator, &dimgInfo, &rimgAllocInfo, &_depthImage.image, &_depthImage.allocation, nullptr);
+
+	//build a image-view for the draw image to use for rendering
+	VkImageViewCreateInfo dview_info = ImageViewCreateInfo(_depthImage.imageFormat, _depthImage.image, VK_IMAGE_ASPECT_DEPTH_BIT);
+
+	VK_CHECK_abort(vkCreateImageView(_device, &dview_info, nullptr, &_depthImage.imageView));
+
 	//add to deletion queues
 	_mainDeletionQueue.PushFunction([=]() {
-		vkDestroyImageView(_device, _drawImage.imageView, nullptr);
-		vmaDestroyImage(_allocator, _drawImage.image, _drawImage.allocation);
+		for (const auto& image : { _drawImage, _depthImage }) {
+			vkDestroyImageView(_device, image.imageView, nullptr);
+			vmaDestroyImage(_allocator, image.image, image.allocation);
+		}
 	});
 	// Create Queue
 	_graphicsQueue = _device.get_queue(vkb::QueueType::graphics).value();
@@ -270,31 +291,37 @@ Game::Game() {
 	VkPushConstantRange vertexPushConstantRange{
 		.stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
 		.offset = 0,
-		.size = sizeof(VertexPushConstants),
+		.size = sizeof(GPUDrawPushConstants),
 	};
 	 
 	
 	//we are not using descriptor sets or other systems yet, so no need to use anything other than empty default
-	VkPipelineLayoutCreateInfo triangleLayoutInfo{
+	VkPipelineLayoutCreateInfo meshLayoutInfo{
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
 		.pushConstantRangeCount = 1,
 		.pPushConstantRanges = &vertexPushConstantRange,
 	};
-	VK_CHECK_abort(vkCreatePipelineLayout(_device, &triangleLayoutInfo, nullptr, &_trianglePipelineLayout));
+	VK_CHECK_abort(vkCreatePipelineLayout(_device, &meshLayoutInfo, nullptr, &_meshPipelineLayout));
 
 	PipelineBuilder pipelineBuilder;
-	pipelineBuilder._pipelineLayout = _trianglePipelineLayout;
+	pipelineBuilder._pipelineLayout = _meshPipelineLayout;
 	pipelineBuilder.SetShaders(triangleVertShader, triangleFragShader);
 	pipelineBuilder.SetColorAttachmentFormat(_drawImage.imageFormat);
+	pipelineBuilder.SetDepthFormat(_depthImage.imageFormat);
+	pipelineBuilder.SetDepthTest(true, true, VK_COMPARE_OP_GREATER_OR_EQUAL);
+
 	// Leaving depth undefined
-	_trianglePipeline = pipelineBuilder.BuildPipeline(_device);
+	_meshPipeline = pipelineBuilder.BuildPipeline(_device);
 	vkDestroyShaderModule(_device, triangleFragShader, nullptr);
 	vkDestroyShaderModule(_device, triangleVertShader, nullptr);
 
 	_mainDeletionQueue.PushFunction([&]() {
-		vkDestroyPipelineLayout(_device, _trianglePipelineLayout, nullptr);
-		vkDestroyPipeline(_device, _trianglePipeline, nullptr);
+		vkDestroyPipelineLayout(_device, _meshPipelineLayout, nullptr);
+		vkDestroyPipeline(_device, _meshPipeline, nullptr);
 	});
+	
+	// Init Mesh Data
+	LoadMeshes("basicmesh.glb");
 
 	InitImgui();
 }
@@ -306,6 +333,10 @@ Game::~Game() {
 		vkDestroyFence(_device, frame.renderFence, nullptr);
 		vkDestroySemaphore(_device, frame.swapchainSemaphore, nullptr);
 		frame.deletionQueue.Flush();
+	}
+	for (auto& mesh : _meshes) {
+		DestroyBuffer(mesh.meshBuffers.indexBuffer);
+		DestroyBuffer(mesh.meshBuffers.vertexBuffer);
 	}
 	_mainDeletionQueue.Flush();
 	for (const auto& image : _swapchainImages) {
@@ -368,6 +399,7 @@ void Game::Draw() {
 	DrawBackground(cmd);
 
 	TransitionImage(cmd, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+	TransitionImage(cmd, _depthImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
 
 	DrawGeometry(cmd);
 
@@ -431,11 +463,12 @@ void Game::DrawBackground(VkCommandBuffer cmd) {
 void Game::DrawGeometry(VkCommandBuffer cmd) {
 	//begin a render pass  connected to our draw image
 	VkRenderingAttachmentInfo colorAttachment = RenderingAttachmentInfo(_drawImage.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+	VkRenderingAttachmentInfo depthAttachment = RenderingDepthAttachmentInfo(_depthImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
 
-	VkRenderingInfo renderInfo = RenderingInfo(ToExtent2D(_drawImage.imageExtent), &colorAttachment, nullptr);
+	VkRenderingInfo renderInfo = RenderingInfo(ToExtent2D(_drawImage.imageExtent), &colorAttachment, &depthAttachment);
 	vkCmdBeginRendering(cmd, &renderInfo);
 
-	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _trianglePipeline);
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _meshPipeline);
 
 	//set dynamic viewport and scissor
 	VkViewport viewport = {};
@@ -458,15 +491,29 @@ void Game::DrawGeometry(VkCommandBuffer cmd) {
 
 	static int counter{0};
 	counter++;
-	auto model = glm::rotate(glm::scale(glm::mat4(1), glm::vec3(0.5)), counter * 0.1f, glm::vec3(0, 0, 1));
-	auto view = glm::lookAtRH(glm::vec3(2),glm::vec3(0),glm::vec3(0,0,1));
-	auto proj = glm::infinitePerspectiveRH_NO(glm::radians(90.0f), kScreenWidth / (float) kScreenHeight, 0.1f);
-	VertexPushConstants pc{};
-	pc.mvp = proj * view * model;
-	vkCmdPushConstants(cmd, _trianglePipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(VertexPushConstants), &pc);
+	auto model = glm::rotate(glm::scale(glm::mat4(1), glm::vec3(0.5)), counter * 0.01f, glm::vec3(0,1,0));
+	auto view = glm::lookAt(glm::vec3(1),glm::vec3(0),glm::vec3(0,1,0));
+	auto proj = glm::infinitePerspective(glm::radians(70.0f), kScreenWidth / (float) kScreenHeight, 0.1f);
+	// Flip Y because Vulkan viewport has origin in the top left (rather than bottom left like OpenGL).
+	proj[1][1] *= -1;
+	// Reverse Z
+#if !defined(GLM_FORCE_DEPTH_ZERO_TO_ONE) || !defined(GLM_FORCE_LEFT_HANDED)
+	#error Reverse Z operation assumes left handed and zero-to-one (but it might work fine for right handed idk)
+#endif
+	proj[2][2] = 0.0f;
+	proj[3][2] *= -1.0f;
+	
+	auto& monkey = _meshes[2];
 
-	//launch a draw command to draw 3 vertices
-	vkCmdDraw(cmd, 3, 1, 0, 0);
+	GPUDrawPushConstants pc{};
+	pc.worldMatrix = proj * view * model;
+	pc.vertexBuffer = monkey.meshBuffers.vertexBufferAddress;
+
+	vkCmdPushConstants(cmd, _meshPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &pc);
+	vkCmdBindIndexBuffer(cmd, monkey.meshBuffers.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+
+	vkCmdDrawIndexed(cmd, monkey.surfaces[0].count, 1, monkey.surfaces[0].startIndex, 0, 0);
+
 
 	vkCmdEndRendering(cmd);
 }
@@ -564,6 +611,189 @@ void Game::DrawImgui(VkCommandBuffer cmd, VkImageView targetImageView) {
 	vkCmdBeginRendering(cmd, &renderInfo);
 	ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
 	vkCmdEndRendering(cmd);
+}
+
+AllocatedBuffer Game::CreateBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage) {
+	// Allocate buffer
+	VkBufferCreateInfo bufferInfo{ 
+		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+		.size = allocSize,
+		.usage = usage,
+	};
+
+	VmaAllocationCreateInfo vmaallocInfo = {
+		.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT,
+		.usage = memoryUsage,
+	};
+
+	// Allocate the buffer
+	AllocatedBuffer newBuffer{};
+	VK_CHECK_abort(vmaCreateBuffer(_allocator, &bufferInfo, &vmaallocInfo, &newBuffer.buffer, &newBuffer.allocation, &newBuffer.info));
+	return newBuffer;
+}
+
+void Game::DestroyBuffer(const AllocatedBuffer& buffer) {
+	vmaDestroyBuffer(_allocator, buffer.buffer, buffer.allocation);
+}
+
+GPUMeshBuffers Game::UploadMesh(std::span<uint32_t> indices, std::span<Vertex> vertices) {
+	const size_t vertexBufferSize = vertices.size() * sizeof(Vertex);
+	const size_t indexBufferSize = indices.size() * sizeof(uint32_t);
+
+	GPUMeshBuffers mesh{};
+
+	//create vertex buffer
+	mesh.vertexBuffer = CreateBuffer(vertexBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+
+	//find the adress of the vertex buffer
+	VkBufferDeviceAddressInfo deviceAdressInfo{ 
+		.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+		.buffer = mesh.vertexBuffer.buffer 
+	};
+	mesh.vertexBufferAddress = vkGetBufferDeviceAddress(_device, &deviceAdressInfo);
+
+	//create index buffer
+	mesh.indexBuffer = CreateBuffer(indexBufferSize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+
+	AllocatedBuffer staging = CreateBuffer(vertexBufferSize + indexBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+
+	std::byte* data = (std::byte*)staging.allocation->GetMappedData();
+
+	// copy vertex buffer
+	memcpy(data, vertices.data(), vertexBufferSize);
+	// copy index buffer
+	memcpy(data + vertexBufferSize, indices.data(), indexBufferSize);
+
+	ImmediateSubmit([&](VkCommandBuffer cmd) {
+		VkBufferCopy vertexCopy{ 
+			.srcOffset = 0,
+			.dstOffset = 0,
+			.size = vertexBufferSize,
+		};
+
+		vkCmdCopyBuffer(cmd, staging.buffer, mesh.vertexBuffer.buffer, 1, &vertexCopy);
+
+		VkBufferCopy indexCopy{ 
+			.srcOffset = vertexBufferSize,
+			.dstOffset = 0,
+			.size = indexBufferSize,
+		};
+
+		vkCmdCopyBuffer(cmd, staging.buffer, mesh.indexBuffer.buffer, 1, &indexCopy);
+	});
+
+	DestroyBuffer(staging);
+
+	return mesh;
+}
+
+bool Game::LoadMeshes(const std::string& filePath) {
+	const auto& fullPath = std::filesystem::current_path() / "assets" / filePath;
+	std::cout << "Loading GLTF: " << fullPath << std::endl;
+
+	fastgltf::GltfDataBuffer dataBuffer;
+	if (auto expected = fastgltf::GltfDataBuffer::FromPath(fullPath); expected) {
+		dataBuffer = std::move(expected.get());
+	} else {
+		std::cout << "Fail to get glTF data buffer from path: " << fastgltf::getErrorName(expected.error()) << std::endl;
+		return false;
+	}
+
+	fastgltf::Asset asset;
+	fastgltf::Parser parser{};
+	if (auto expected = parser.loadGltf(dataBuffer, fullPath.parent_path(), fastgltf::Options::LoadGLBBuffers | fastgltf::Options::LoadExternalBuffers); expected) {
+		asset = std::move(expected.get());
+	} else {
+		std::cout << "Failed to load glTF: " << fastgltf::getErrorName(expected.error()) << std::endl;
+		return false;
+	}
+
+	for (fastgltf::Mesh& mesh : asset.meshes) {
+		MeshAsset& newmesh = _meshes.emplace_back();
+		newmesh.name = mesh.name;
+
+		std::vector<uint32_t> indices;
+		std::vector<Vertex> vertices;
+
+		for (auto&& p : mesh.primitives) {
+			GeoSurface newSurface;
+			newSurface.startIndex = (uint32_t)indices.size();
+			newSurface.count = (uint32_t)asset.accessors[p.indicesAccessor.value()].count;
+
+			size_t initial_vtx = vertices.size();
+
+			// load indexes
+			{
+				fastgltf::Accessor& indexaccessor = asset.accessors[p.indicesAccessor.value()];
+				indices.reserve(indices.size() + indexaccessor.count);
+
+				fastgltf::iterateAccessor<std::uint32_t>(asset, indexaccessor,
+					[&](std::uint32_t idx) {
+						indices.push_back(idx + initial_vtx);
+					});
+			}
+
+			// load vertex positions
+			{
+				fastgltf::Accessor& posAccessor = asset.accessors[p.findAttribute("POSITION")->accessorIndex];
+				vertices.resize(vertices.size() + posAccessor.count);
+
+				fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, posAccessor,
+					[&](glm::vec3 v, size_t index) {
+						Vertex newvtx;
+						newvtx.position = v;
+						newvtx.normal = { 1, 0, 0 };
+						newvtx.color = glm::vec4{ 1.f };
+						newvtx.uv_x = 0;
+						newvtx.uv_y = 0;
+						vertices[initial_vtx + index] = newvtx;
+					});
+			}
+
+			// load vertex normals
+			auto normals = p.findAttribute("NORMAL");
+			if (normals != p.attributes.end()) {
+
+				fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, asset.accessors[(*normals).accessorIndex],
+					[&](glm::vec3 v, size_t index) {
+						vertices[initial_vtx + index].normal = v;
+					});
+			}
+
+			// load UVs
+			auto uv = p.findAttribute("TEXCOORD_0");
+			if (uv != p.attributes.end()) {
+
+				fastgltf::iterateAccessorWithIndex<glm::vec2>(asset, asset.accessors[(*uv).accessorIndex],
+					[&](glm::vec2 v, size_t index) {
+						vertices[initial_vtx + index].uv_x = v.x;
+						vertices[initial_vtx + index].uv_y = v.y;
+					});
+			}
+
+			// load vertex colors
+			auto colors = p.findAttribute("COLOR_0");
+			if (colors != p.attributes.end()) {
+
+				fastgltf::iterateAccessorWithIndex<glm::vec4>(asset, asset.accessors[(*colors).accessorIndex],
+					[&](glm::vec4 v, size_t index) {
+						vertices[initial_vtx + index].color = v;
+					});
+			}
+			newmesh.surfaces.push_back(newSurface);
+		}
+
+		// display the vertex normals
+		constexpr bool OverrideColors = true;
+		if (OverrideColors) {
+			for (Vertex& vtx : vertices) {
+				vtx.color = glm::vec4(vtx.normal, 1.f);
+			}
+		}
+		newmesh.meshBuffers = UploadMesh(indices, vertices);
+	}
+
+	return true;
 }
 
 Game::FrameData& Game::GetCurrentFrame() {

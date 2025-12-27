@@ -4,24 +4,12 @@
 #include <array>
 #include <deque>
 #include <functional>
-#include <vma/vk_mem_alloc.h>
+#include <filesystem>
+#include <graphics/graphics_types.h>
 #include <graphics/graphics_memory.h>
 #include <graphics/graphics_shaders.h>
-#include <glm/vec4.hpp>
-#include <glm/mat4x4.hpp>
 
 const unsigned FRAME_OVERLAP = 2;
-
-struct ComputePushConstants {
-	glm::vec4 data1;
-	glm::vec4 data2;
-	glm::vec4 data3;
-	glm::vec4 data4;
-};
-
-struct VertexPushConstants {
-	glm::mat4 mvp;
-};
 
 class Game {
 public:
@@ -65,6 +53,7 @@ private:
 		VkFormat imageFormat;
 	};
 	AllocatedImage _drawImage;
+	AllocatedImage _depthImage;
 	DescriptorAllocator _globalDescriptorAllocator;
 	VkDescriptorSet _drawImageDescriptors;
 	VkDescriptorSetLayout _drawImageDescriptorLayout;
@@ -77,7 +66,12 @@ private:
 	void ImmediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function);
 	void InitImgui();
 	void DrawImgui(VkCommandBuffer cmd, VkImageView targetImageView);
-	VkPipelineLayout _trianglePipelineLayout;
-	VkPipeline _trianglePipeline;
+	VkPipelineLayout _meshPipelineLayout;
+	VkPipeline _meshPipeline;
+	AllocatedBuffer CreateBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
+	void DestroyBuffer(const AllocatedBuffer& buffer);
+	GPUMeshBuffers UploadMesh(std::span<uint32_t> indices, std::span<Vertex> vertices);
+	bool LoadMeshes(const std::string& filePath);
+	std::vector<MeshAsset> _meshes;
 };
 

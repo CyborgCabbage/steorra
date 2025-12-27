@@ -21,6 +21,7 @@ public:
     void SetShaders(VkShaderModule vertexShader, VkShaderModule fragmentShader);
     void SetColorAttachmentFormat(VkFormat format);
     void SetDepthFormat(VkFormat format);
+    void SetDepthTest(bool test, bool write, VkCompareOp op);
 
     VkPipeline BuildPipeline(VkDevice device);
 };

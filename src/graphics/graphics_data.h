@@ -105,6 +105,18 @@ constexpr VkRenderingAttachmentInfo RenderingAttachmentInfo(VkImageView view, Vk
 	return colorAttachment;
 }
 
+constexpr VkRenderingAttachmentInfo RenderingDepthAttachmentInfo(VkImageView view, VkImageLayout layout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL) {
+	VkRenderingAttachmentInfo depthAttachment{
+		.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+		.imageView = view,
+		.imageLayout = layout,
+		.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+		.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+	};
+	depthAttachment.clearValue.depthStencil.depth = 0.0f;
+	return depthAttachment;
+}
+
 constexpr VkRenderingInfo RenderingInfo(VkExtent2D renderExtent, VkRenderingAttachmentInfo* colorAttachment,
 	VkRenderingAttachmentInfo* depthAttachment) {
 	return VkRenderingInfo{

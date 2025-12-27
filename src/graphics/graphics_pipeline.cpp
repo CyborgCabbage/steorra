@@ -65,6 +65,14 @@ void PipelineBuilder::SetDepthFormat(VkFormat format) {
     _renderInfo.depthAttachmentFormat = format;
 }
 
+void PipelineBuilder::SetDepthTest(bool test, bool write, VkCompareOp op) {
+    _depthStencil.depthTestEnable = test;
+    _depthStencil.depthWriteEnable = write;
+    _depthStencil.depthCompareOp = op;
+    _depthStencil.minDepthBounds = 0.0f;
+    _depthStencil.maxDepthBounds = 1.0f;
+}
+
 VkPipeline PipelineBuilder::BuildPipeline(VkDevice device) {
     // Don't need to provide ptrs because we are using dynamic viewport and scissor state
     VkPipelineViewportStateCreateInfo viewportState = {
