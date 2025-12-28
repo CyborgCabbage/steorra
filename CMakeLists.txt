@@ -11,6 +11,7 @@ set(CMAKE_CXX_STANDARD 20)
 project ("steorra")
 
 find_package(Vulkan REQUIRED)
+find_package(VulkanMemoryAllocator CONFIG REQUIRED)
 find_package(glm CONFIG REQUIRED)
 find_package(SDL3 CONFIG REQUIRED)
 find_package(vk-bootstrap CONFIG REQUIRED)

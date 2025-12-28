@@ -1,6 +1,6 @@
 #include "graphics_pipeline.h"
 #include <array>
-#include <graphics/graphics_data.h>
+#include "graphics/graphics_data.h"
 
 PipelineBuilder::PipelineBuilder() {
 	Reset();

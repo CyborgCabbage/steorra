@@ -5,9 +5,9 @@
 #include <deque>
 #include <functional>
 #include <filesystem>
-#include <graphics/graphics_types.h>
-#include <graphics/graphics_memory.h>
-#include <graphics/graphics_shaders.h>
+#include "graphics/graphics_types.h"
+#include "graphics/graphics_memory.h"
+#include "graphics/graphics_shaders.h"
 
 const unsigned FRAME_OVERLAP = 2;
 

@@ -1,4 +1,4 @@
-#include "Game.h"
+#include "game.h"
 #include <SDL3/SDL_init.h>
 #include <SDL3/SDL_vulkan.h>
 #include <SDL3/SDL_log.h>
@@ -15,11 +15,11 @@
 #include <glm/ext/matrix_transform.hpp>
 #include <glm/ext/matrix_clip_space.hpp> 
 #include <glm/gtc/matrix_transform.hpp>
-#include <graphics/graphics_data.h>
-#include <graphics/graphics_command.h>
-#include <graphics/graphics_errors.h>
-#include <graphics/graphics_shaders.h>
-#include <graphics/graphics_pipeline.h>
+#include "graphics/graphics_data.h"
+#include "graphics/graphics_command.h"
+#include "graphics/graphics_errors.h"
+#include "graphics/graphics_shaders.h"
+#include "graphics/graphics_pipeline.h"
 
 constexpr int kScreenWidth{ 640 };
 constexpr int kScreenHeight{ 480 };
@@ -452,7 +452,7 @@ void Game::DrawBackground(VkCommandBuffer cmd) {
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _gradientPipelineLayout, 0, 1, &_drawImageDescriptors, 0, nullptr);
 
 	ComputePushConstants pc;
-	pc.data1 = glm::vec4(1, 0, 0, 1);
+	pc.data1 = glm::vec4(1, 1, 0, 1);
 	pc.data2 = glm::vec4(0, 0, 1, 1);
 
 	vkCmdPushConstants(cmd, _gradientPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &pc);
@@ -701,7 +701,7 @@ bool Game::LoadMeshes(const std::string& filePath) {
 
 	fastgltf::Asset asset;
 	fastgltf::Parser parser{};
-	if (auto expected = parser.loadGltf(dataBuffer, fullPath.parent_path(), fastgltf::Options::LoadGLBBuffers | fastgltf::Options::LoadExternalBuffers); expected) {
+	if (auto expected = parser.loadGltf(dataBuffer, fullPath.parent_path(), fastgltf::Options::LoadExternalBuffers); expected) {
 		asset = std::move(expected.get());
 	} else {
 		std::cout << "Failed to load glTF: " << fastgltf::getErrorName(expected.error()) << std::endl;
