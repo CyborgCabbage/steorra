@@ -495,10 +495,7 @@ void Game::DrawGeometry(VkCommandBuffer cmd) {
 
 	vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-	static int counter{0};
-	counter++;
-	auto model = glm::rotate(glm::scale(glm::mat4(1), glm::vec3(0.5)), counter * 0.01f, glm::vec3(0,1,0));
-	auto view = glm::lookAt(glm::vec3(1),glm::vec3(0),glm::vec3(0,1,0));
+	auto view = glm::lookAt(glm::vec3(5),glm::vec3(0),glm::vec3(0,1,0));
 	auto proj = glm::infinitePerspective(glm::radians(70.0f), kScreenWidth / (float) kScreenHeight, 0.1f);
 	// Flip Y because Vulkan viewport has origin in the top left (rather than bottom left like OpenGL).
 	proj[1][1] *= -1;
@@ -512,13 +509,14 @@ void Game::DrawGeometry(VkCommandBuffer cmd) {
 	auto& sphere = _meshes.at("SmoothSphere");
 
 	GPUDrawPushConstants pc{};
-	pc.worldMatrix = proj * view * model;
 	pc.vertexBuffer = sphere.meshBuffers.vertexBufferAddress;
-
-	vkCmdPushConstants(cmd, _meshPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &pc);
 	vkCmdBindIndexBuffer(cmd, sphere.meshBuffers.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-
-	vkCmdDrawIndexed(cmd, sphere.surfaces[0].count, 1, sphere.surfaces[0].startIndex, 0, 0);
+	for (int i : {-1, 0, 1}) {
+		auto model = glm::translate(glm::mat4(1), glm::vec3(0, i, 0));
+		pc.worldMatrix = proj * view * model;
+		vkCmdPushConstants(cmd, _meshPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &pc);
+		vkCmdDrawIndexed(cmd, sphere.surfaces[0].count, 1, sphere.surfaces[0].startIndex, 0, 0);
+	}
 
 	vkCmdEndRendering(cmd);
 }
