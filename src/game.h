@@ -3,6 +3,7 @@
 #include <VkBootstrap.h>
 #include <array>
 #include <deque>
+#include <unordered_map>
 #include <functional>
 #include <filesystem>
 #include "graphics/graphics_types.h"
@@ -72,6 +73,6 @@ private:
 	void DestroyBuffer(const AllocatedBuffer& buffer);
 	GPUMeshBuffers UploadMesh(std::span<uint32_t> indices, std::span<Vertex> vertices);
 	bool LoadMeshes(const std::string& filePath);
-	std::vector<MeshAsset> _meshes;
+	std::unordered_map<std::string, MeshAsset> _meshes;
 };
 

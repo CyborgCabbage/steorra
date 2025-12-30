@@ -321,7 +321,9 @@ Game::Game() {
 	});
 	
 	// Init Mesh Data
-	LoadMeshes("basicmesh.glb");
+	if (!LoadMeshes("basic_shapes.glb")) {
+		std::exit(EXIT_FAILURE);
+	}
 
 	InitImgui();
 }
@@ -334,7 +336,7 @@ Game::~Game() {
 		vkDestroySemaphore(_device, frame.swapchainSemaphore, nullptr);
 		frame.deletionQueue.Flush();
 	}
-	for (auto& mesh : _meshes) {
+	for (auto& [name, mesh] : _meshes) {
 		DestroyBuffer(mesh.meshBuffers.indexBuffer);
 		DestroyBuffer(mesh.meshBuffers.vertexBuffer);
 	}
@@ -396,7 +398,8 @@ void Game::Draw() {
 	// we will overwrite it all so we dont care about what was the older layout
 	TransitionImage(cmd, _drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
 
-	DrawBackground(cmd);
+	// Disabled background shader, using render attachment clear color instead
+	//DrawBackground(cmd);
 
 	TransitionImage(cmd, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 	TransitionImage(cmd, _depthImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
@@ -462,7 +465,10 @@ void Game::DrawBackground(VkCommandBuffer cmd) {
 
 void Game::DrawGeometry(VkCommandBuffer cmd) {
 	//begin a render pass  connected to our draw image
-	VkRenderingAttachmentInfo colorAttachment = RenderingAttachmentInfo(_drawImage.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+	VkClearValue clearColor{
+		.color = {0.05, 0.05, 0.10}
+	};
+	VkRenderingAttachmentInfo colorAttachment = RenderingAttachmentInfo(_drawImage.imageView, &clearColor, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 	VkRenderingAttachmentInfo depthAttachment = RenderingDepthAttachmentInfo(_depthImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
 
 	VkRenderingInfo renderInfo = RenderingInfo(ToExtent2D(_drawImage.imageExtent), &colorAttachment, &depthAttachment);
@@ -503,17 +509,16 @@ void Game::DrawGeometry(VkCommandBuffer cmd) {
 	proj[2][2] = 0.0f;
 	proj[3][2] *= -1.0f;
 	
-	auto& monkey = _meshes[2];
+	auto& sphere = _meshes.at("SmoothSphere");
 
 	GPUDrawPushConstants pc{};
 	pc.worldMatrix = proj * view * model;
-	pc.vertexBuffer = monkey.meshBuffers.vertexBufferAddress;
+	pc.vertexBuffer = sphere.meshBuffers.vertexBufferAddress;
 
 	vkCmdPushConstants(cmd, _meshPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &pc);
-	vkCmdBindIndexBuffer(cmd, monkey.meshBuffers.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+	vkCmdBindIndexBuffer(cmd, sphere.meshBuffers.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
 
-	vkCmdDrawIndexed(cmd, monkey.surfaces[0].count, 1, monkey.surfaces[0].startIndex, 0, 0);
-
+	vkCmdDrawIndexed(cmd, sphere.surfaces[0].count, 1, sphere.surfaces[0].startIndex, 0, 0);
 
 	vkCmdEndRendering(cmd);
 }
@@ -707,9 +712,9 @@ bool Game::LoadMeshes(const std::string& filePath) {
 		std::cout << "Failed to load glTF: " << fastgltf::getErrorName(expected.error()) << std::endl;
 		return false;
 	}
-
+	
 	for (fastgltf::Mesh& mesh : asset.meshes) {
-		MeshAsset& newmesh = _meshes.emplace_back();
+		MeshAsset& newmesh = _meshes[std::string(mesh.name)];
 		newmesh.name = mesh.name;
 
 		std::vector<uint32_t> indices;
