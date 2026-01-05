@@ -108,10 +108,10 @@ glm::dvec3 KElements::AtTime(double time) const {
 	const double e = e_wr.AtTime(time);// Eccentricity
 	const double I = glm::radians(I_wr.AtTime(time));// Inclination
 	const double L = glm::radians(L_wr.AtTime(time));// Mean Longnitude
-	const double wl = glm::radians(lp_wr.AtTime(time));// Longnitude of Perihelion
+	const double p = glm::radians(lp_wr.AtTime(time));// Longnitude of Perihelion
 	const double O = glm::radians(ln_wr.AtTime(time));// Longnitude of Ascending Node
-	const double w = wl - O; // Argument of Perihelion
-	const double M = WrapToRange(L - wl, -glm::pi<double>(), glm::pi<double>()); // Mean Anomaly
+	const double w = p - O; // Argument of Perihelion
+	const double M = WrapToRange(L - p, -glm::pi<double>(), glm::pi<double>()); // Mean Anomaly
 	const double E = GetEccentricAnomaly(e, M);
 	// Planets position in its own orbital plane
 	glm::dvec3 pos{ 
@@ -120,9 +120,9 @@ glm::dvec3 KElements::AtTime(double time) const {
 		0.0 
 	};
 	// get coordinates in J2000 ecliptic plane
-	//pos = glm::rotateZ(pos, -w);
-	//pos = glm::rotateY(pos, -I);
-	//pos = glm::rotateZ(pos, -O);
+	//pos = glm::rotateZ(pos, w);
+	//pos = glm::rotateY(pos, I);
+	//pos = glm::rotateZ(pos, O);
 	pos = {
 		(cos(w) * cos(O) - sin(w) * sin(O) * cos(I)) * pos.x + (-sin(w) * cos(O) - cos(w) * sin(O) * cos(I)) * pos.y,
 		(cos(w) * sin(O) + sin(w) * cos(O) * cos(I)) * pos.x + (-sin(w) * sin(O) + cos(w) * cos(O) * cos(I)) * pos.y,
