@@ -20,6 +20,7 @@
 #include "graphics/graphics_errors.h"
 #include "graphics/graphics_shaders.h"
 #include "graphics/graphics_pipeline.h"
+#include "dynamics/dynamics_orbits.h"
 
 constexpr int kScreenWidth{ 640 };
 constexpr int kScreenHeight{ 480 };
@@ -326,6 +327,12 @@ Game::Game() {
 	}
 
 	InitImgui();
+
+	auto test = SolarSystem();
+	for (int i = 0; i < 115; i++) {
+		auto pos = test.mercury->AtTime(2461044.5+i);
+		std::cout << pos.x << " " << pos.y << " " << pos.z << std::endl;
+	}
 }
 
 Game::~Game() {

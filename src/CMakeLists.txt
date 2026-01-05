@@ -1,9 +1,9 @@
-add_executable (steorra "steorra.cpp" "game.cpp" "game.h"  "graphics/graphics_data.h" "graphics/graphics_command.cpp" "graphics/graphics_command.h" "graphics/graphics_memory.h" "graphics/graphics_memory.cpp" "graphics/graphics_shaders.h" "graphics/graphics_shaders.cpp" "graphics/graphics_errors.h" "graphics/graphics_pipeline.h" "graphics/graphics_pipeline.cpp"   "graphics/graphics_types.h")
+add_executable (steorra "steorra.cpp" "game.cpp" "game.h"  "graphics/graphics_data.h" "graphics/graphics_command.cpp" "graphics/graphics_command.h" "graphics/graphics_memory.h" "graphics/graphics_memory.cpp" "graphics/graphics_shaders.h" "graphics/graphics_shaders.cpp" "graphics/graphics_errors.h" "graphics/graphics_pipeline.h" "graphics/graphics_pipeline.cpp" "graphics/graphics_types.h" "dynamics/dynamics_orbits.cpp" "dynamics/dynamics_orbits.h")
 
 target_include_directories(steorra PRIVATE "")
 target_link_libraries(steorra PRIVATE Vulkan::Vulkan GPUOpen::VulkanMemoryAllocator)
 target_link_libraries(steorra PRIVATE glm::glm)
-add_compile_definitions(GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_FORCE_LEFT_HANDED)
+add_compile_definitions(GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_FORCE_LEFT_HANDED GLM_ENABLE_EXPERIMENTAL GLM_CONFIG_XYZW_ONLY)
 target_link_libraries(steorra PRIVATE SDL3::SDL3)
 target_link_libraries(steorra PRIVATE vk-bootstrap::vk-bootstrap)
 target_link_libraries(steorra PRIVATE imgui::imgui)
