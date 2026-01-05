@@ -166,7 +166,7 @@ SolarSystem::SolarSystem() {
 			.lp_wr = {table.GetCellValue(5, row), table.GetCellValue(5, row + 1)},
 			.ln_wr = {table.GetCellValue(6, row), table.GetCellValue(6, row + 1)},
 		});
-		_planets.emplace_back(planet);
+		planets.emplace_back(planet);
 		return planet;
 	};
 	mercury = PlanetFromTable(3);

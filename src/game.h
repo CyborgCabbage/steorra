@@ -9,6 +9,7 @@
 #include "graphics/graphics_types.h"
 #include "graphics/graphics_memory.h"
 #include "graphics/graphics_shaders.h"
+#include "dynamics/dynamics_orbits.h"
 
 const unsigned FRAME_OVERLAP = 2;
 
@@ -30,9 +31,9 @@ private:
 		VkImageView imageView;
 		VkSemaphore renderSemaphore;
 	};
-	void Draw();
+	void Draw(double dt);
 	void DrawBackground(VkCommandBuffer cmd);
-	void DrawGeometry(VkCommandBuffer cmd);
+	void DrawGeometry(VkCommandBuffer cmd, double dt);
 	FrameData& GetCurrentFrame();
 	SDL_Window* _window;
 	vkb::Instance _instance;
@@ -74,5 +75,7 @@ private:
 	GPUMeshBuffers UploadMesh(std::span<uint32_t> indices, std::span<Vertex> vertices);
 	bool LoadMeshes(const std::string& filePath);
 	std::unordered_map<std::string, MeshAsset> _meshes;
+	SolarSystem _solarSystem;
+	double _solarTime;
 };
 

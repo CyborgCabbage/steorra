@@ -2,6 +2,7 @@
 #include <SDL3/SDL_init.h>
 #include <SDL3/SDL_vulkan.h>
 #include <SDL3/SDL_log.h>
+#include <SDL3/SDL_timer.h>
 #include <iostream>
 #include <VkBootstrap.h>
 #define VMA_IMPLEMENTATION
@@ -20,7 +21,6 @@
 #include "graphics/graphics_errors.h"
 #include "graphics/graphics_shaders.h"
 #include "graphics/graphics_pipeline.h"
-#include "dynamics/dynamics_orbits.h"
 
 constexpr int kScreenWidth{ 640 };
 constexpr int kScreenHeight{ 480 };
@@ -328,11 +328,8 @@ Game::Game() {
 
 	InitImgui();
 
-	auto test = SolarSystem();
-	for (int i = 0; i < 115; i++) {
-		auto pos = test.mercury->AtTime(2461044.5+i);
-		std::cout << pos.x << " " << pos.y << " " << pos.z << std::endl;
-	}
+	_solarSystem = SolarSystem();
+	_solarTime = 2461044.5;//A.D. 2026-Jan-04 00:00:00.0000 TBD
 }
 
 Game::~Game() {
@@ -361,6 +358,8 @@ Game::~Game() {
 }
 
 void Game::Run() {
+	Uint64 lastTime{ 0 };
+	Uint64 currentTime{ 0 };
 	while (true) {
 		SDL_Event e{};
 		while (SDL_PollEvent(&e) == true) {
@@ -379,12 +378,13 @@ void Game::Run() {
 
 		//make imgui calculate internal draw structures
 		ImGui::Render();
-		Draw();
-		_frameNumber++;
+		currentTime = SDL_GetTicks();
+		Draw((currentTime - lastTime) / 1000.0);
+		lastTime = currentTime;
 	}
 }
 
-void Game::Draw() {
+void Game::Draw(double dt) {
 	// Wait for previous frame to finish rendering
 	uint64_t ONE_SECOND = 1'000'000'000;
 	auto& frame = GetCurrentFrame();
@@ -411,7 +411,7 @@ void Game::Draw() {
 	TransitionImage(cmd, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 	TransitionImage(cmd, _depthImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
 
-	DrawGeometry(cmd);
+	DrawGeometry(cmd, dt);
 
 	//transition the draw image and the swapchain image into their correct transfer layouts
 	TransitionImage(cmd, _drawImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
@@ -470,7 +470,7 @@ void Game::DrawBackground(VkCommandBuffer cmd) {
 	vkCmdDispatch(cmd, (uint32_t)std::ceil(_drawImage.imageExtent.width / 16.0), (uint32_t)std::ceil(_drawImage.imageExtent.height / 16.0), 1);
 }
 
-void Game::DrawGeometry(VkCommandBuffer cmd) {
+void Game::DrawGeometry(VkCommandBuffer cmd, double dt) {
 	//begin a render pass  connected to our draw image
 	VkClearValue clearColor{
 		.color = {0.05, 0.05, 0.10}
@@ -502,25 +502,27 @@ void Game::DrawGeometry(VkCommandBuffer cmd) {
 
 	vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-	auto view = glm::lookAt(glm::vec3(5),glm::vec3(0),glm::vec3(0,1,0));
-	auto proj = glm::infinitePerspective(glm::radians(70.0f), kScreenWidth / (float) kScreenHeight, 0.1f);
+	glm::dmat4 view = glm::lookAt(glm::dvec3(1,1,300.0),glm::dvec3(0),glm::dvec3(0,0,1));
+	glm::dmat4 proj = glm::infinitePerspective(glm::radians(70.0), kScreenWidth / (double) kScreenHeight, 0.1);
 	// Flip Y because Vulkan viewport has origin in the top left (rather than bottom left like OpenGL).
-	proj[1][1] *= -1;
+	proj[1][1] *= -1.0;
 	// Reverse Z
 #if !defined(GLM_FORCE_DEPTH_ZERO_TO_ONE) || !defined(GLM_FORCE_LEFT_HANDED)
 	#error Reverse Z operation assumes left handed and zero-to-one (but it might work fine for right handed idk)
 #endif
-	proj[2][2] = 0.0f;
-	proj[3][2] *= -1.0f;
+	proj[2][2] = 0.0;
+	proj[3][2] *= -1.0;
 	
 	auto& sphere = _meshes.at("SmoothSphere");
+
+	_solarTime += dt;
 
 	GPUDrawPushConstants pc{};
 	pc.vertexBuffer = sphere.meshBuffers.vertexBufferAddress;
 	vkCmdBindIndexBuffer(cmd, sphere.meshBuffers.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-	for (int i : {-1, 0, 1}) {
-		auto model = glm::translate(glm::mat4(1), glm::vec3(0, i, 0));
-		pc.worldMatrix = proj * view * model;
+	for (auto& planet : _solarSystem.planets) {
+		glm::dmat4 model = glm::translate(glm::dmat4(1), planet->AtTime(_solarTime) * 10.0);
+		pc.worldMatrix = glm::mat4(proj * view * model);
 		vkCmdPushConstants(cmd, _meshPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &pc);
 		vkCmdDrawIndexed(cmd, sphere.surfaces[0].count, 1, sphere.surfaces[0].startIndex, 0, 0);
 	}

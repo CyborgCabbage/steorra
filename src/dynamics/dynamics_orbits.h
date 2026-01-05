@@ -39,7 +39,5 @@ public:
 	Planet* saturn;
 	Planet* uranus;
 	Planet* neptune;
-private:
-	std::vector<std::unique_ptr<Planet>> _planets;
-
+	std::vector<std::unique_ptr<Planet>> planets;
 };
