@@ -1,4 +1,4 @@
-add_executable (steorra "steorra.cpp" "game.cpp" "game.h"  "graphics/graphics_data.h" "graphics/graphics_command.cpp" "graphics/graphics_command.h" "graphics/graphics_memory.h" "graphics/graphics_memory.cpp" "graphics/graphics_shaders.h" "graphics/graphics_shaders.cpp" "graphics/graphics_errors.h" "graphics/graphics_pipeline.h" "graphics/graphics_pipeline.cpp" "graphics/graphics_types.h" "dynamics/dynamics_orbits.cpp" "dynamics/dynamics_orbits.h")
+add_executable (steorra "steorra.cpp" "game.cpp" "game.h"  "graphics/graphics_data.h" "graphics/graphics_command.cpp" "graphics/graphics_command.h" "graphics/graphics_memory.h" "graphics/graphics_memory.cpp" "graphics/graphics_shaders.h" "graphics/graphics_shaders.cpp" "graphics/graphics_errors.h" "graphics/graphics_pipeline.h" "graphics/graphics_pipeline.cpp" "graphics/graphics_types.h" "dynamics/dynamics_orbits.cpp" "dynamics/dynamics_orbits.h" "util/util_spectator.cpp" "util/util_spectator.h")
 
 target_include_directories(steorra PRIVATE "")
 target_link_libraries(steorra PRIVATE Vulkan::Vulkan GPUOpen::VulkanMemoryAllocator)

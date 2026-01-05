@@ -3,6 +3,7 @@
 #include <SDL3/SDL_vulkan.h>
 #include <SDL3/SDL_log.h>
 #include <SDL3/SDL_timer.h>
+#include <SDL3/SDL_mouse.h>
 #include <iostream>
 #include <VkBootstrap.h>
 #define VMA_IMPLEMENTATION
@@ -25,7 +26,7 @@
 constexpr int kScreenWidth{ 640 };
 constexpr int kScreenHeight{ 480 };
 
-Game::Game() {
+Game::Game() : _keysDown{} {
 	// Init SDL
 	if (!SDL_Init(SDL_INIT_VIDEO)) {
 		SDL_Log("SDL_Init failed: %s\n", SDL_GetError());
@@ -330,6 +331,8 @@ Game::Game() {
 
 	_solarSystem = SolarSystem();
 	_solarTime = 2461044.5;//A.D. 2026-Jan-04 00:00:00.0000 TBD
+
+	SDL_SetWindowRelativeMouseMode(_window, true);
 }
 
 Game::~Game() {
@@ -366,6 +369,15 @@ void Game::Run() {
 			if (e.type == SDL_EVENT_QUIT) {
 				return;
 			}
+			else if (e.type == SDL_EVENT_MOUSE_MOTION) {
+				_spectator.Turn(glm::dvec2{ e.motion.xrel, e.motion.yrel } * 0.002);
+			}
+			else if (e.type == SDL_EVENT_KEY_DOWN) {
+				_keysDown.at(e.key.scancode) = true;
+			}
+			else if (e.type == SDL_EVENT_KEY_UP) {
+				_keysDown.at(e.key.scancode) = false;
+			}
 			ImGui_ImplSDL3_ProcessEvent(&e);
 		}
 		// imgui new frame
@@ -379,7 +391,15 @@ void Game::Run() {
 		//make imgui calculate internal draw structures
 		ImGui::Render();
 		currentTime = SDL_GetTicks();
-		Draw((currentTime - lastTime) / 1000.0);
+		// Updates
+		double dt = (currentTime - lastTime) / 1000.0;
+		_solarTime += dt;
+		_spectator.Move(glm::dvec3{
+			_keysDown.at(SDL_SCANCODE_W) - _keysDown.at(SDL_SCANCODE_S),
+			_keysDown.at(SDL_SCANCODE_D) - _keysDown.at(SDL_SCANCODE_A),
+			_keysDown.at(SDL_SCANCODE_SPACE) - _keysDown.at(SDL_SCANCODE_LCTRL),
+		} * dt * 5.0);
+		Draw(dt);
 		lastTime = currentTime;
 	}
 }
@@ -502,7 +522,7 @@ void Game::DrawGeometry(VkCommandBuffer cmd, double dt) {
 
 	vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-	glm::dmat4 view = glm::lookAt(glm::dvec3(1,1,300.0),glm::dvec3(0),glm::dvec3(0,0,1));
+	glm::dmat4 view = _spectator.GetViewMatrix();
 	glm::dmat4 proj = glm::infinitePerspective(glm::radians(70.0), kScreenWidth / (double) kScreenHeight, 0.1);
 	// Flip Y because Vulkan viewport has origin in the top left (rather than bottom left like OpenGL).
 	proj[1][1] *= -1.0;
@@ -514,8 +534,6 @@ void Game::DrawGeometry(VkCommandBuffer cmd, double dt) {
 	proj[3][2] *= -1.0;
 	
 	auto& sphere = _meshes.at("SmoothSphere");
-
-	_solarTime += dt;
 
 	GPUDrawPushConstants pc{};
 	pc.vertexBuffer = sphere.meshBuffers.vertexBufferAddress;

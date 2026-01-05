@@ -1,5 +1,6 @@
 #pragma once
 #include <SDL3/SDL_video.h>
+#include <SDL3/SDL_scancode.h>
 #include <VkBootstrap.h>
 #include <array>
 #include <deque>
@@ -10,6 +11,7 @@
 #include "graphics/graphics_memory.h"
 #include "graphics/graphics_shaders.h"
 #include "dynamics/dynamics_orbits.h"
+#include "util/util_spectator.h"
 
 const unsigned FRAME_OVERLAP = 2;
 
@@ -77,5 +79,7 @@ private:
 	std::unordered_map<std::string, MeshAsset> _meshes;
 	SolarSystem _solarSystem;
 	double _solarTime;
+	Spectator _spectator;
+	std::array<bool, SDL_SCANCODE_COUNT> _keysDown;
 };
 
