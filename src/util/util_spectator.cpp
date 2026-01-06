@@ -8,7 +8,7 @@ Spectator::Spectator() : position(0.0), yaw(0.0), pitch(0.0) {
 
 void Spectator::Turn(glm::dvec2 radians) {
 	yaw = glm::wrapAngle(yaw + radians.x);
-	pitch = glm::clamp(pitch + radians.y, -glm::half_pi<double>(), glm::half_pi<double>());
+	pitch = glm::clamp(pitch + radians.y, -glm::half_pi<double>() * 0.999, glm::half_pi<double>() * 0.999);
 }
 
 void Spectator::Move(glm::dvec3 rel) {

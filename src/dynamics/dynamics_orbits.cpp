@@ -5,7 +5,7 @@
 #include <optional>
 #include <charconv>
 
-// Source for data and equations, converted to radians for this program https://ssd.jpl.nasa.gov/planets/approx_pos.html
+// Source for data and equations, converted to radians for this program https://ssd.jpl.nasa.gov/bodies/approx_pos.html
 
 const std::string planetData = R"(
                a              e               I                L            long.peri.      long.node.
@@ -97,45 +97,17 @@ static double WrapToRange(double val, double min, double max) {
 	return val + min;
 }
 
-double KEWR::AtTime(double time) const {
+double VaryingElement::GetValueAtTime(double time) const {
 	return value + rate * ((time - 2451545.0f) / 36525);
 }
 
 const double METRES_PER_AU = 149597870700;
 
-glm::dvec3 KElements::AtTime(double time) const {
-	const double a = a_wr.AtTime(time);// Semi-major Axis
-	const double e = e_wr.AtTime(time);// Eccentricity
-	const double I = glm::radians(I_wr.AtTime(time));// Inclination
-	const double L = glm::radians(L_wr.AtTime(time));// Mean Longnitude
-	const double p = glm::radians(lp_wr.AtTime(time));// Longnitude of Perihelion
-	const double O = glm::radians(ln_wr.AtTime(time));// Longnitude of Ascending Node
-	const double w = p - O; // Argument of Perihelion
-	const double M = WrapToRange(L - p, -glm::pi<double>(), glm::pi<double>()); // Mean Anomaly
-	const double E = GetEccentricAnomaly(e, M);
-	// Planets position in its own orbital plane
-	glm::dvec3 pos{ 
-		a * (cos(E) - e),
-		a * sqrt(1.0 - e * e) * sin(E),
-		0.0 
-	};
-	// get coordinates in J2000 ecliptic plane
-	//pos = glm::rotateZ(pos, w);
-	//pos = glm::rotateY(pos, I);
-	//pos = glm::rotateZ(pos, O);
-	pos = {
-		(cos(w) * cos(O) - sin(w) * sin(O) * cos(I)) * pos.x + (-sin(w) * cos(O) - cos(w) * sin(O) * cos(I)) * pos.y,
-		(cos(w) * sin(O) + sin(w) * cos(O) * cos(I)) * pos.x + (-sin(w) * sin(O) + cos(w) * cos(O) * cos(I)) * pos.y,
-		(sin(w) * sin(I)) * pos.x + (cos(w) * sin(I)) * pos.y,
-	};
-	return pos;
-}
-
-double KElements::GetEccentricAnomaly(double eccentricity, double meanAnomaly) const {
+static double GetEccentricAnomaly(double eccentricity, double meanAnomaly) {
 	double E = meanAnomaly + eccentricity * sin(meanAnomaly);
 	int i = 0;
 	for (; i < 1000; i++) {// Cap iterations
-		const double dM =  E - eccentricity * sin(E) - meanAnomaly;
+		const double dM = E - eccentricity * sin(E) - meanAnomaly;
 		const double dE = dM / (1.0 - eccentricity * cos(E));
 		E -= dE;
 		if (abs(dE) <= 1e-8) {// Error is small enough to stop
@@ -145,36 +117,85 @@ double KElements::GetEccentricAnomaly(double eccentricity, double meanAnomaly) c
 	return E;
 }
 
-Planet::Planet(std::string_view name, const KElements& elements) : _name(name), _elements(elements) {}
+KeplerOrbit::KeplerOrbit(double a, double e, double I, double L, double lp, double ln) : a(a), e(e), I(I), L(L), lp(lp), ln(ln) {
+}
 
-const std::string& Planet::GetName() const {
+glm::dvec3 KeplerOrbit::GetPositionAtTime(double time) const {
+	const double w = lp - ln; // Argument of Perihelion
+	const double M = WrapToRange(L - lp, -glm::pi<double>(), glm::pi<double>()); // Mean Anomaly
+	const double E = GetEccentricAnomaly(e, M);
+	// Planets position in its own orbital plane
+	glm::dvec3 pos{ 
+		a * (cos(E) - e),
+		a * sqrt(1.0 - e * e) * sin(E),
+		0.0 
+	};
+	// get coordinates in J2000 ecliptic plane
+	pos = {
+		(cos(w) * cos(ln) - sin(w) * sin(ln) * cos(I)) * pos.x + (-sin(w) * cos(ln) - cos(w) * sin(ln) * cos(I)) * pos.y,
+		(cos(w) * sin(ln) + sin(w) * cos(ln) * cos(I)) * pos.x + (-sin(w) * sin(ln) + cos(w) * cos(ln) * cos(I)) * pos.y,
+		(sin(w) * sin(I)) * pos.x + (cos(w) * sin(I)) * pos.y,
+	};
+	return pos * METRES_PER_AU;
+}
+
+VaryingKeplerOrbit::VaryingKeplerOrbit(VaryingElement a_wr, VaryingElement e_wr, VaryingElement I_wr, VaryingElement L_wr, VaryingElement lp_wr, VaryingElement ln_wr) : a_wr(a_wr), e_wr(e_wr), I_wr(I_wr), L_wr(L_wr), lp_wr(lp_wr), ln_wr(ln_wr) {
+}
+
+glm::dvec3 VaryingKeplerOrbit::GetPositionAtTime(double time) const {
+	KeplerOrbit orbit(
+		a_wr.GetValueAtTime(time),
+		e_wr.GetValueAtTime(time),
+		glm::radians(I_wr.GetValueAtTime(time)),
+		glm::radians(L_wr.GetValueAtTime(time)),
+		glm::radians(lp_wr.GetValueAtTime(time)),
+		glm::radians(ln_wr.GetValueAtTime(time))
+	);
+	return orbit.GetPositionAtTime(time);
+}
+
+SolarBody::SolarBody(std::string_view name, double radius, SolarBodyDriver* driver) : _name(name), _radius(radius), _driver(driver) {}
+
+const std::string& SolarBody::GetName() const {
 	return _name;
 }
 
-glm::dvec3 Planet::AtTime(double time) const {
-	return _elements.AtTime(time);
+double SolarBody::GetRadius() const {
+	return _radius;
+}
+
+glm::dvec3 SolarBody::GetPositionAtTime(double time) const {
+	if (_driver) {
+		return _driver->GetPositionAtTime(time);
+	}
+	return glm::dvec3(0.0);
 }
 
 SolarSystem::SolarSystem() {
 	TableView table(planetData, {8, 12, 16, 16, 20, 16, 16});
-	auto PlanetFromTable = [&](size_t row) -> Planet* {
-		Planet* planet = new Planet(StripSpaces(table.GetCell(0, row)), KElements{
-			.a_wr = {table.GetCellValue(1, row), table.GetCellValue(1, row + 1)},
-			.e_wr = {table.GetCellValue(2, row), table.GetCellValue(2, row + 1)},
-			.I_wr = {table.GetCellValue(3, row), table.GetCellValue(3, row + 1)},
-			.L_wr = {table.GetCellValue(4, row), table.GetCellValue(4, row + 1)},
-			.lp_wr = {table.GetCellValue(5, row), table.GetCellValue(5, row + 1)},
-			.ln_wr = {table.GetCellValue(6, row), table.GetCellValue(6, row + 1)},
-		});
-		planets.emplace_back(planet);
+	auto PlanetFromTable = [&](size_t row, double radius) -> SolarBody* {
+		SolarBody* planet = new SolarBody(StripSpaces(table.GetCell(0, row)), radius, new VaryingKeplerOrbit(
+			{table.GetCellValue(1, row), table.GetCellValue(1, row + 1)},
+			{table.GetCellValue(2, row), table.GetCellValue(2, row + 1)},
+			{table.GetCellValue(3, row), table.GetCellValue(3, row + 1)},
+			{table.GetCellValue(4, row), table.GetCellValue(4, row + 1)},
+			{table.GetCellValue(5, row), table.GetCellValue(5, row + 1)},
+			{table.GetCellValue(6, row), table.GetCellValue(6, row + 1)}
+		));
 		return planet;
 	};
-	mercury = PlanetFromTable(3);
-	venus = PlanetFromTable(5);
-	earth = PlanetFromTable(7);
-	mars = PlanetFromTable(9);
-	jupiter = PlanetFromTable(11);
-	saturn = PlanetFromTable(13);
-	uranus = PlanetFromTable(15);
-	neptune = PlanetFromTable(17);
+	// Radius: https://ssd.jpl.nasa.gov/bodies/phys_par.html
+	sun = AddBody(new SolarBody("Sun", 695'508'000));
+	mercury = AddBody(PlanetFromTable(3, 2'439'400));
+	venus = AddBody(PlanetFromTable(5, 6'051'800));
+	earth = AddBody(PlanetFromTable(7, 6'371'008));
+	mars = AddBody(PlanetFromTable(9, 3'389'500));
+	jupiter = AddBody(PlanetFromTable(11, 69'911'000));
+	saturn = AddBody(PlanetFromTable(13, 58'232'000));
+	uranus = AddBody(PlanetFromTable(15, 25'362'000));
+	neptune = AddBody(PlanetFromTable(17, 24'622'000));
+}
+
+SolarBody* SolarSystem::AddBody(SolarBody* newSolarBody) {
+	return bodies.emplace_back(newSolarBody).get();
 }

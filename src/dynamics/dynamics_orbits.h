@@ -4,40 +4,56 @@
 #include <memory>
 #include <glm/vec3.hpp>
 
-// Kepler Element With Rate
-struct KEWR {
+class SolarBodyDriver {
+public:
+	virtual glm::dvec3 GetPositionAtTime(double time) const = 0;
+};
+
+class KeplerOrbit : public SolarBodyDriver {
+public:
+	KeplerOrbit(double a, double e, double I, double L, double lp, double ln);
+	double a, e, I, L, lp, ln;
+	glm::dvec3 GetPositionAtTime(double time) const override;
+};
+
+struct VaryingElement {
 	double value;
 	double rate;
-	double AtTime(double time) const;
+	double GetValueAtTime(double time) const;
 };
 
-struct KElements {
-	KEWR a_wr, e_wr, I_wr, L_wr, lp_wr, ln_wr;
-	glm::dvec3 AtTime(double time) const;
-private:
-	double GetEccentricAnomaly(double eccentricity, double meanAnomaly) const;
-};
-
-class Planet {
+class VaryingKeplerOrbit : public SolarBodyDriver {
 public:
-	Planet(std::string_view name, const KElements& elements);
+	VaryingKeplerOrbit(VaryingElement a_wr, VaryingElement e_wr, VaryingElement I_wr, VaryingElement L_wr, VaryingElement lp_wr, VaryingElement ln_wr);
+	VaryingElement a_wr, e_wr, I_wr, L_wr, lp_wr, ln_wr;
+	glm::dvec3 GetPositionAtTime(double time) const override;
+};
+
+class SolarBody {
+public:
+	SolarBody(std::string_view name, double radius, SolarBodyDriver* driver = nullptr);
 	const std::string& GetName() const;
-	glm::dvec3 AtTime(double time) const;
+	double GetRadius() const;
+	glm::dvec3 GetPositionAtTime(double time) const;
 private:
+	std::unique_ptr<SolarBodyDriver> _driver;
 	std::string _name;
-	KElements _elements;
+	double _radius;
 };
 
 class SolarSystem {
 public:
 	SolarSystem();
-	Planet* mercury;
-	Planet* venus;
-	Planet* earth;
-	Planet* mars;
-	Planet* jupiter;
-	Planet* saturn;
-	Planet* uranus;
-	Planet* neptune;
-	std::vector<std::unique_ptr<Planet>> planets;
+	SolarBody* sun;
+	SolarBody* mercury;
+	SolarBody* venus;
+	SolarBody* earth;
+	SolarBody* mars;
+	SolarBody* jupiter;
+	SolarBody* saturn;
+	SolarBody* uranus;
+	SolarBody* neptune;
+	std::vector<std::unique_ptr<SolarBody>> bodies;
+private:
+	SolarBody* AddBody(SolarBody* body);
 };

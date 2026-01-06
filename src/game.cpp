@@ -23,8 +23,8 @@
 #include "graphics/graphics_shaders.h"
 #include "graphics/graphics_pipeline.h"
 
-constexpr int kScreenWidth{ 640 };
-constexpr int kScreenHeight{ 480 };
+constexpr int kScreenWidth{ 1280 };
+constexpr int kScreenHeight{ 960 };
 
 Game::Game() : _keysDown{} {
 	// Init SDL
@@ -398,7 +398,7 @@ void Game::Run() {
 			_keysDown.at(SDL_SCANCODE_W) - _keysDown.at(SDL_SCANCODE_S),
 			_keysDown.at(SDL_SCANCODE_D) - _keysDown.at(SDL_SCANCODE_A),
 			_keysDown.at(SDL_SCANCODE_SPACE) - _keysDown.at(SDL_SCANCODE_LCTRL),
-		} * dt * 5.0);
+		} * dt * 1000000000.0);
 		Draw(dt);
 		lastTime = currentTime;
 	}
@@ -538,11 +538,13 @@ void Game::DrawGeometry(VkCommandBuffer cmd, double dt) {
 	GPUDrawPushConstants pc{};
 	pc.vertexBuffer = sphere.meshBuffers.vertexBufferAddress;
 	vkCmdBindIndexBuffer(cmd, sphere.meshBuffers.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-	for (auto& planet : _solarSystem.planets) {
-		glm::dmat4 model = glm::translate(glm::dmat4(1), planet->AtTime(_solarTime) * 10.0);
-		pc.worldMatrix = glm::mat4(proj * view * model);
-		vkCmdPushConstants(cmd, _meshPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &pc);
-		vkCmdDrawIndexed(cmd, sphere.surfaces[0].count, 1, sphere.surfaces[0].startIndex, 0, 0);
+	for (auto& body : _solarSystem.bodies) {
+		for (int i = 0; i < 100; i++) {
+			glm::dmat4 model = glm::scale(glm::translate(glm::dmat4(1.0), body->GetPositionAtTime(_solarTime + i)), glm::dvec3(body->GetRadius()));
+			pc.worldMatrix = glm::mat4(proj * view * model);
+			vkCmdPushConstants(cmd, _meshPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &pc);
+			vkCmdDrawIndexed(cmd, sphere.surfaces[0].count, 1, sphere.surfaces[0].startIndex, 0, 0);
+		}
 	}
 
 	vkCmdEndRendering(cmd);
