@@ -216,83 +216,6 @@ Game::Game() : _keysDown{} {
 	VK_CHECK_abort(vkCreateFence(_device, &fenceCreateInfo, nullptr, &_immediateFence));
 	_mainDeletionQueue.PushFunction([=]() { vkDestroyFence(_device, _immediateFence, nullptr); });
 
-	// Create Descriptors
-	std::vector<DescriptorAllocator::PoolSizeRatio> sizes =
-	{
-		{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1 }
-	};
-
-	_globalDescriptorAllocator.InitPool(_device, 10, sizes);
-
-	// Make the descriptor set layout for our compute draw
-	{
-		DescriptorLayoutBuilder builder;
-		builder.AddBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
-		_drawImageDescriptorLayout = builder.Build(_device, VK_SHADER_STAGE_COMPUTE_BIT);
-	}
-
-	//allocate a descriptor set for our draw image
-	_drawImageDescriptors = _globalDescriptorAllocator.Allocate(_device, _drawImageDescriptorLayout);
-
-	VkDescriptorImageInfo imgInfo{};
-	imgInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-	imgInfo.imageView = _drawImage.imageView;
-
-	VkWriteDescriptorSet drawImageWrite = {};
-	drawImageWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-	drawImageWrite.dstBinding = 0;
-	drawImageWrite.dstSet = _drawImageDescriptors;
-	drawImageWrite.descriptorCount = 1;
-	drawImageWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-	drawImageWrite.pImageInfo = &imgInfo;
-
-	vkUpdateDescriptorSets(_device, 1, &drawImageWrite, 0, nullptr);
-
-	//make sure both the descriptor allocator and the new layout get cleaned up properly
-	_mainDeletionQueue.PushFunction([&]() {
-		_globalDescriptorAllocator.DestroyPool(_device);
-		vkDestroyDescriptorSetLayout(_device, _drawImageDescriptorLayout, nullptr);
-	});
-	// Compute Pipeline
-	VkPushConstantRange pushConstantRange{
-		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-		.offset = 0,
-		.size = sizeof(ComputePushConstants),
-	};
-	VkPipelineLayoutCreateInfo computeLayoutInfo{
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-		.setLayoutCount = 1,
-		.pSetLayouts = &_drawImageDescriptorLayout,
-		.pushConstantRangeCount = 1,
-		.pPushConstantRanges = &pushConstantRange,
-	};
-	VK_CHECK_abort(vkCreatePipelineLayout(_device, &computeLayoutInfo, nullptr, &_gradientPipelineLayout));
-	VkShaderModule computeDrawShader;
-	if (!LoadShaderModule("gradient.comp", _device, &computeDrawShader)) {
-		std::cout << "Error when building the compute shader \n";
-		std::exit(EXIT_FAILURE);
-	}
-
-	VkPipelineShaderStageCreateInfo stageinfo{};
-	stageinfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-	stageinfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-	stageinfo.module = computeDrawShader;
-	stageinfo.pName = "main";
-
-	VkComputePipelineCreateInfo computePipelineCreateInfo{};
-	computePipelineCreateInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-	computePipelineCreateInfo.layout = _gradientPipelineLayout;
-	computePipelineCreateInfo.stage = stageinfo;
-
-	VK_CHECK_abort(vkCreateComputePipelines(_device, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &_gradientPipeline));
-
-	vkDestroyShaderModule(_device, computeDrawShader, nullptr);
-
-	_mainDeletionQueue.PushFunction([&]() {
-		vkDestroyPipelineLayout(_device, _gradientPipelineLayout, nullptr);
-		vkDestroyPipeline(_device, _gradientPipeline, nullptr);
-	});
-
 	// Triangle Pipeline
 	VkShaderModule triangleFragShader;
 	if (!LoadShaderModule("colored_triangle.frag", _device, &triangleFragShader)) {
@@ -438,14 +361,7 @@ void Game::Draw(double dt) {
 	VkCommandBufferBeginInfo cmdBufferBeginInfo = CommandBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
 	VK_CHECK_abort(vkBeginCommandBuffer(cmd, &cmdBufferBeginInfo));
 
-	// transition our main draw image into general layout so we can write into it
-	// we will overwrite it all so we dont care about what was the older layout
-	TransitionImage(cmd, _drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
-
-	// Disabled background shader, using render attachment clear color instead
-	//DrawBackground(cmd);
-
-	TransitionImage(cmd, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+	TransitionImage(cmd, _drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 	TransitionImage(cmd, _depthImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
 
 	DrawGeometry(cmd, dt);
@@ -489,22 +405,6 @@ void Game::Draw(double dt) {
 		.pImageIndices = &swapchainImageIndex,
 	};
 	VK_CHECK_abort(vkQueuePresentKHR(_graphicsQueue, &presentInfo));
-}
-
-void Game::DrawBackground(VkCommandBuffer cmd) {
-	// bind the gradient drawing compute pipeline
-	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _gradientPipeline);
-
-	// bind the descriptor set containing the draw image for the compute pipeline
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _gradientPipelineLayout, 0, 1, &_drawImageDescriptors, 0, nullptr);
-
-	ComputePushConstants pc;
-	pc.data1 = glm::vec4(1, 1, 0, 1);
-	pc.data2 = glm::vec4(0, 0, 1, 1);
-
-	vkCmdPushConstants(cmd, _gradientPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &pc);
-	// execute the compute pipeline dispatch. We are using 16x16 workgroup size so we need to divide by it
-	vkCmdDispatch(cmd, (uint32_t)std::ceil(_drawImage.imageExtent.width / 16.0), (uint32_t)std::ceil(_drawImage.imageExtent.height / 16.0), 1);
 }
 
 void Game::DrawGeometry(VkCommandBuffer cmd, double dt) {

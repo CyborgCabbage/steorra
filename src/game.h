@@ -34,7 +34,6 @@ private:
 		VkSemaphore renderSemaphore;
 	};
 	void Draw(double dt);
-	void DrawBackground(VkCommandBuffer cmd);
 	void DrawGeometry(VkCommandBuffer cmd, double dt);
 	FrameData& GetCurrentFrame();
 	SDL_Window* _window;
@@ -58,11 +57,6 @@ private:
 	};
 	AllocatedImage _drawImage;
 	AllocatedImage _depthImage;
-	DescriptorAllocator _globalDescriptorAllocator;
-	VkDescriptorSet _drawImageDescriptors;
-	VkDescriptorSetLayout _drawImageDescriptorLayout;
-	VkPipeline _gradientPipeline;
-	VkPipelineLayout _gradientPipelineLayout;
 	//Immediate Submit
 	VkFence _immediateFence;
 	VkCommandBuffer _immediateCommandBuffer;
