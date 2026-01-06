@@ -314,6 +314,16 @@ void Game::Run() {
 			}
 			else if (e.type == SDL_EVENT_KEY_DOWN) {
 				_keysDown.at(e.key.scancode) = true;
+				switch (e.key.scancode) {
+					case SDL_SCANCODE_UP:
+						_foldIndex = glm::clamp(_foldIndex + 1, 0, _maxFoldIndex);
+						std::cout << "Fold to " << _foldIndex << std::endl;
+						break;
+					case SDL_SCANCODE_DOWN:
+						_foldIndex = glm::clamp(_foldIndex - 1, 0, _maxFoldIndex);
+						std::cout << "Fold to " << _foldIndex << std::endl;
+						break;
+				}
 			}
 			else if (e.type == SDL_EVENT_KEY_UP) {
 				_keysDown.at(e.key.scancode) = false;
@@ -333,12 +343,12 @@ void Game::Run() {
 		currentTime = SDL_GetTicks();
 		// Updates
 		double dt = (currentTime - lastTime) / 1000.0;
-		_solarTime += dt;
+		_solarTime += dt / 86400.0; //Number of seconds in a day (the simulation takes in the number of days)
 		_spectator.Move(glm::dvec3{
 			_keysDown.at(SDL_SCANCODE_W) - _keysDown.at(SDL_SCANCODE_S),
 			_keysDown.at(SDL_SCANCODE_D) - _keysDown.at(SDL_SCANCODE_A),
 			_keysDown.at(SDL_SCANCODE_SPACE) - _keysDown.at(SDL_SCANCODE_LCTRL),
-		} * dt * 1000000000.0);
+		} * dt * 5000.0 * GetFoldScale());
 		Draw(dt);
 		lastTime = currentTime;
 	}
@@ -456,8 +466,8 @@ void Game::DrawGeometry(VkCommandBuffer cmd, double dt) {
 	pc.vertexBuffer = sphere.meshBuffers.vertexBufferAddress;
 	vkCmdBindIndexBuffer(cmd, sphere.meshBuffers.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
 	for (auto& body : _solarSystem.bodies) {
-		for (int i = 0; i < 100; i++) {
-			glm::dmat4 model = glm::scale(glm::translate(glm::dmat4(1.0), body->GetPositionAtTime(_solarTime + i)), glm::dvec3(body->GetRadius()));
+		for (int i = 0; i < 20; i++) {
+			glm::dmat4 model = glm::scale(glm::translate(glm::dmat4(1.0), body->GetPositionAtTime(_solarTime + i)), glm::dvec3(GetFoldedRadius(body->GetRadius()) * pow(0.95, i)));
 			pc.worldMatrix = glm::mat4(proj * view * model);
 			vkCmdPushConstants(cmd, _meshPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &pc);
 			vkCmdDrawIndexed(cmd, sphere.surfaces[0].count, 1, sphere.surfaces[0].startIndex, 0, 0);
@@ -743,6 +753,16 @@ bool Game::LoadMeshes(const std::string& filePath) {
 	}
 
 	return true;
+}
+
+double Game::GetFoldedRadius(double radius) const {
+	std::array<double,4> scales{ 1.0, 1.2, 45.0, 250.0 };
+	return radius * scales[_foldIndex];
+}
+
+double Game::GetFoldScale() const {
+	std::array<double, 4> scales{ 1, 100'000, 3'000'000, 60'000'000 };
+	return scales[_foldIndex];
 }
 
 Game::FrameData& Game::GetCurrentFrame() {

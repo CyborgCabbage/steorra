@@ -75,5 +75,9 @@ private:
 	double _solarTime;
 	Spectator _spectator;
 	std::array<bool, SDL_SCANCODE_COUNT> _keysDown;
+	int _foldIndex = 0;
+	int _maxFoldIndex = 3;
+	double GetFoldedRadius(double radius) const;
+	double GetFoldScale() const;
 };
 
