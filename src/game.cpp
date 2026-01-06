@@ -81,6 +81,23 @@ Game::Game() : _keysDown{} {
 		std::exit(EXIT_FAILURE);
 	}
 	_device = deviceBuildResult.value();
+	// MSAA
+	VkSampleCountFlags count = _device.physical_device.properties.limits.framebufferColorSampleCounts & _device.physical_device.properties.limits.framebufferDepthSampleCounts;
+	VkSampleCountFlagBits msaa = VK_SAMPLE_COUNT_1_BIT;
+	if (count & VK_SAMPLE_COUNT_64_BIT) {
+		msaa = VK_SAMPLE_COUNT_64_BIT;
+	} else if (count & VK_SAMPLE_COUNT_32_BIT) {
+		msaa = VK_SAMPLE_COUNT_32_BIT;
+	} else if (count & VK_SAMPLE_COUNT_16_BIT) {
+		msaa = VK_SAMPLE_COUNT_16_BIT;
+	} else if (count & VK_SAMPLE_COUNT_8_BIT) {
+		msaa = VK_SAMPLE_COUNT_8_BIT;
+	} else if (count & VK_SAMPLE_COUNT_4_BIT) {
+		msaa = VK_SAMPLE_COUNT_4_BIT;
+	} else if (count & VK_SAMPLE_COUNT_2_BIT) {
+		msaa = VK_SAMPLE_COUNT_2_BIT;
+	}
+
 	// Memory allocator
 	VmaAllocatorCreateInfo allocatorInfo = {
 		.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT,
