@@ -269,7 +269,6 @@ Game::Game() : _keysDown{} {
 
 	InitImgui();
 
-	_solarSystem = SolarSystem();
 	_solarTime = 2461044.5;//A.D. 2026-Jan-04 00:00:00.0000 TBD
 
 	SDL_SetWindowRelativeMouseMode(_window, true);

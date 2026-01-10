@@ -4,32 +4,8 @@
 #include <iostream>
 #include <optional>
 #include <charconv>
-
-// Source for data and equations, converted to radians for this program https://ssd.jpl.nasa.gov/bodies/approx_pos.html
-
-const std::string planetData = R"(
-               a              e               I                L            long.peri.      long.node.
-           au, au/Cy     rad, rad/Cy     deg, deg/Cy      deg, deg/Cy      deg, deg/Cy     deg, deg/Cy
-------------------------------------------------------------------------------------------------------
-Mercury   0.38709927      0.20563593      7.00497902      252.25032350     77.45779628     48.33076593
-          0.00000037      0.00001906     -0.00594749   149472.67411175      0.16047689     -0.12534081
-Venus     0.72333566      0.00677672      3.39467605      181.97909950    131.60246718     76.67984255
-          0.00000390     -0.00004107     -0.00078890    58517.81538729      0.00268329     -0.27769418
-EM Bary   1.00000261      0.01671123     -0.00001531      100.46457166    102.93768193      0.00000000
-          0.00000562     -0.00004392     -0.01294668    35999.37244981      0.32327364      0.00000000
-Mars      1.52371034      0.09339410      1.84969142       -4.55343205    -23.94362959     49.55953891
-          0.00001847      0.00007882     -0.00813131    19140.30268499      0.44441088     -0.29257343
-Jupiter   5.20288700      0.04838624      1.30439695       34.39644051     14.72847983    100.47390909
-         -0.00011607     -0.00013253     -0.00183714     3034.74612775      0.21252668      0.20469106
-Saturn    9.53667594      0.05386179      2.48599187       49.95424423     92.59887831    113.66242448
-         -0.00125060     -0.00050991      0.00193609     1222.49362201     -0.41897216     -0.28867794
-Uranus   19.18916464      0.04725744      0.77263783      313.23810451    170.95427630     74.01692503
-         -0.00196176     -0.00004397     -0.00242939      428.48202785      0.40805281      0.04240589
-Neptune  30.06992276      0.00859048      1.77004347      -55.12002969     44.96476227    131.78422574
-          0.00026291      0.00005105      0.00035372      218.45945325     -0.32241464     -0.00508664
-------------------------------------------------------------------------------------------------------
-EM Bary = Earth/Moon Barycenter
-)";
+#include <filesystem>
+#include <fstream>
 
 static std::string_view StripSpaces(std::string_view view) {
 	size_t first = view.find_first_not_of(' ');
@@ -39,33 +15,35 @@ static std::string_view StripSpaces(std::string_view view) {
 
 class TableView {
 public:
-	TableView(std::string_view data, std::initializer_list<size_t>&& columnWidths) {
+	TableView(std::string_view tablePath) {
+		// Get File
+		std::ifstream ifs(std::filesystem::current_path() / "assets" / "data" / tablePath);
+		std::string data((std::istreambuf_iterator<char>(ifs)), (std::istreambuf_iterator<char>()));
 		// Get lines
 		size_t lineStart{ 0 };
-		for (size_t lineEnd = 0; lineEnd < data.size(); lineEnd++) {
-			if (data.at(lineEnd) == '\n') {
+		for (size_t lineEnd = 0; lineEnd <= data.size(); lineEnd++) {
+			if (lineEnd == data.size() || data.at(lineEnd) == '\n') {
 				int lineLength = lineEnd - lineStart;
-				if (lineLength > 0) {
-					_rows.push_back(data.substr(lineStart, lineLength));
+				auto line = std::string_view(data).substr(lineStart, lineLength);
+				// Get cells
+				std::vector<std::string> lineCells;
+				size_t cellStart{ 0 };
+				for (size_t cellEnd = 0; cellEnd < line.size(); cellEnd++) {
+					if (line.at(cellEnd) == ',') {
+						int cellLength = cellEnd - cellStart;
+						lineCells.push_back(std::string(line.substr(cellStart, cellLength)));
+						cellStart = cellEnd + 1;
+					}
+				}
+				if (!lineCells.empty()) {
+					_cells.push_back(lineCells);
 				}
 				lineStart = lineEnd + 1;
 			}
 		}
-		// Get column offsets
-		_columnOffsets.reserve(columnWidths.size() + 1);
-		_columnOffsets.push_back(0);
-		for (size_t width : columnWidths) {
-			_columnOffsets.push_back(_columnOffsets.back() + width);
-		}
 	}
 	std::string_view GetCell(size_t column, size_t row) const {
-		std::string_view view = GetRow(row);
-		if (column > _columnOffsets.size()) {
-			throw std::out_of_range("Column index out of range");
-		}
-		size_t start{ _columnOffsets.at(column) };
-		size_t end{ _columnOffsets.at(column + 1) };
-		return view.substr(start, end - start);
+		return GetRow(row).at(column);
 	}
 	float GetCellValue(size_t column, size_t row) const {
 		std::string_view view = StripSpaces(GetCell(column, row));
@@ -73,18 +51,14 @@ public:
 		std::from_chars(view.data(), view.data() + view.size(), value);
 		return value;
 	}
-	std::string_view GetRow(size_t row) const {
-		return _rows.at(row);
+	const std::vector<std::string>& GetRow(size_t row) const {
+		return _cells.at(row);
 	}
 	size_t GetRowCount() const {
-		return _rows.size();
-	}
-	size_t GetColumnCount() const {
-		return _columnOffsets.size() - 1;
+		return _cells.size();
 	}
 private:
-	std::vector<size_t> _columnOffsets;
-	std::vector<std::string_view> _rows;
+	std::vector<std::vector<std::string>> _cells;
 };
 
 static double WrapToRange(double val, double min, double max) {
@@ -117,12 +91,10 @@ static double GetEccentricAnomaly(double eccentricity, double meanAnomaly) {
 	return E;
 }
 
-KeplerOrbit::KeplerOrbit(double a, double e, double I, double L, double lp, double ln) : a(a), e(e), I(I), L(L), lp(lp), ln(ln) {
+KeplerOrbit::KeplerOrbit(SolarBody* parentBody, double a, double e, double w, double M, double I, double ln) : parentBody(parentBody), a(a), e(e), w(w), M(M), I(I), ln(ln) {
 }
 
 glm::dvec3 KeplerOrbit::GetPositionAtTime(double time) const {
-	const double w = lp - ln; // Argument of Perihelion
-	const double M = WrapToRange(L - lp, -glm::pi<double>(), glm::pi<double>()); // Mean Anomaly
 	const double E = GetEccentricAnomaly(e, M);
 	// Planets position in its own orbital plane
 	glm::dvec3 pos{ 
@@ -136,21 +108,23 @@ glm::dvec3 KeplerOrbit::GetPositionAtTime(double time) const {
 		(cos(w) * sin(ln) + sin(w) * cos(ln) * cos(I)) * pos.x + (-sin(w) * sin(ln) + cos(w) * cos(ln) * cos(I)) * pos.y,
 		(sin(w) * sin(I)) * pos.x + (cos(w) * sin(I)) * pos.y,
 	};
-	return pos * METRES_PER_AU;
+	if (parentBody) {
+		pos += parentBody->GetPositionAtTime(time);
+	}
+	return pos;
 }
 
-VaryingKeplerOrbit::VaryingKeplerOrbit(VaryingElement a_wr, VaryingElement e_wr, VaryingElement I_wr, VaryingElement L_wr, VaryingElement lp_wr, VaryingElement ln_wr) : a_wr(a_wr), e_wr(e_wr), I_wr(I_wr), L_wr(L_wr), lp_wr(lp_wr), ln_wr(ln_wr) {
+VaryingKeplerOrbit::VaryingKeplerOrbit(SolarBody* parentBody, VaryingElement a_wr, VaryingElement e_wr, VaryingElement I_wr, VaryingElement L_wr, VaryingElement lp_wr, VaryingElement ln_wr) : parentBody(parentBody), a_wr(a_wr), e_wr(e_wr), I_wr(I_wr), L_wr(L_wr), lp_wr(lp_wr), ln_wr(ln_wr) {
 }
 
 glm::dvec3 VaryingKeplerOrbit::GetPositionAtTime(double time) const {
-	KeplerOrbit orbit(
-		a_wr.GetValueAtTime(time),
-		e_wr.GetValueAtTime(time),
-		glm::radians(I_wr.GetValueAtTime(time)),
-		glm::radians(L_wr.GetValueAtTime(time)),
-		glm::radians(lp_wr.GetValueAtTime(time)),
-		glm::radians(ln_wr.GetValueAtTime(time))
-	);
+	const double lp = glm::radians(lp_wr.GetValueAtTime(time));
+	const double L = glm::radians(L_wr.GetValueAtTime(time));
+	const double ln = glm::radians(ln_wr.GetValueAtTime(time));
+	const double I = glm::radians(I_wr.GetValueAtTime(time));
+	const double w = lp - ln; // Argument of Perihelion
+	const double M = WrapToRange(L - lp, -glm::pi<double>(), glm::pi<double>()); // Mean Anomaly
+	KeplerOrbit orbit(parentBody, a_wr.GetValueAtTime(time) * METRES_PER_AU, e_wr.GetValueAtTime(time), w, M, I, ln);
 	return orbit.GetPositionAtTime(time);
 }
 
@@ -172,30 +146,79 @@ glm::dvec3 SolarBody::GetPositionAtTime(double time) const {
 }
 
 SolarSystem::SolarSystem() {
-	TableView table(planetData, {8, 12, 16, 16, 20, 16, 16});
+	// Radius: https://ssd.jpl.nasa.gov/bodies/phys_par.html
+	TableView planetOrbits("PlanetOrbits.csv");
+	sun = AddBody(new SolarBody("Sun", 695'508'000));
 	auto PlanetFromTable = [&](size_t row, double radius) -> SolarBody* {
-		SolarBody* planet = new SolarBody(StripSpaces(table.GetCell(0, row)), radius, new VaryingKeplerOrbit(
-			{table.GetCellValue(1, row), table.GetCellValue(1, row + 1)},
-			{table.GetCellValue(2, row), table.GetCellValue(2, row + 1)},
-			{table.GetCellValue(3, row), table.GetCellValue(3, row + 1)},
-			{table.GetCellValue(4, row), table.GetCellValue(4, row + 1)},
-			{table.GetCellValue(5, row), table.GetCellValue(5, row + 1)},
-			{table.GetCellValue(6, row), table.GetCellValue(6, row + 1)}
+		SolarBody* planet = new SolarBody(StripSpaces(planetOrbits.GetCell(0, row)), radius, new VaryingKeplerOrbit(
+			sun,
+			{planetOrbits.GetCellValue(1, row), planetOrbits.GetCellValue(1, row + 1)},
+			{planetOrbits.GetCellValue(2, row), planetOrbits.GetCellValue(2, row + 1)},
+			{planetOrbits.GetCellValue(3, row), planetOrbits.GetCellValue(3, row + 1)},
+			{planetOrbits.GetCellValue(4, row), planetOrbits.GetCellValue(4, row + 1)},
+			{planetOrbits.GetCellValue(5, row), planetOrbits.GetCellValue(5, row + 1)},
+			{planetOrbits.GetCellValue(6, row), planetOrbits.GetCellValue(6, row + 1)}
 		));
 		return planet;
 	};
-	// Radius: https://ssd.jpl.nasa.gov/bodies/phys_par.html
-	sun = AddBody(new SolarBody("Sun", 695'508'000));
-	mercury = AddBody(PlanetFromTable(3, 2'439'400));
-	venus = AddBody(PlanetFromTable(5, 6'051'800));
-	earth = AddBody(PlanetFromTable(7, 6'371'008));
-	mars = AddBody(PlanetFromTable(9, 3'389'500));
-	jupiter = AddBody(PlanetFromTable(11, 69'911'000));
-	saturn = AddBody(PlanetFromTable(13, 58'232'000));
-	uranus = AddBody(PlanetFromTable(15, 25'362'000));
-	neptune = AddBody(PlanetFromTable(17, 24'622'000));
+	mercury = AddBody(PlanetFromTable(2, 2'439'400));
+	venus = AddBody(PlanetFromTable(4, 6'051'800));
+	earth = AddBody(PlanetFromTable(6, 6'371'008));
+	mars = AddBody(PlanetFromTable(8, 3'389'500));
+	jupiter = AddBody(PlanetFromTable(10, 69'911'000));
+	saturn = AddBody(PlanetFromTable(12, 58'232'000));
+	uranus = AddBody(PlanetFromTable(14, 25'362'000));
+	neptune = AddBody(PlanetFromTable(16, 24'622'000));
+	TableView satOrbits("SatelliteOrbits.csv");
+	TableView satConstants("SatelliteConstants.csv");
+	auto SatelliteFromTable = [&](SolarBody* parent, size_t row, double radius) -> SolarBody* {
+		SolarBody* satellite = new SolarBody(StripSpaces(satOrbits.GetCell(1, row)), radius, new KeplerOrbit(
+			parent,
+			satOrbits.GetCellValue(5, row) * 1000.0,
+			satOrbits.GetCellValue(6, row),
+			glm::radians(satOrbits.GetCellValue(7, row)),
+			glm::radians(satOrbits.GetCellValue(8, row)),
+			glm::radians(satOrbits.GetCellValue(9, row)),
+			glm::radians(satOrbits.GetCellValue(10, row))
+		));
+		return satellite;
+	};
+	for (int row = 2; row < satOrbits.GetRowCount(); row++) {
+		// Check it is ecliptic
+		//if (StripSpaces(satOrbits.GetCell(3, row)) != "ecliptic") {
+		//	continue;
+		//}
+		// Find parent
+		auto parentName = satOrbits.GetCell(0, row);
+		SolarBody* parent = GetBody(parentName);
+		if (!parent) {
+			continue;
+		}
+		// Find radius
+		auto satName = satOrbits.GetCell(1, row);
+		double radius = 0.0f;
+		for (int crow = 2; crow < satConstants.GetRowCount(); crow++) {
+			if (satConstants.GetCell(1, crow) == satName) {
+				radius = satConstants.GetCellValue(4, crow) * 1000.0;
+			}
+		}
+		if (radius == 0.0f) {
+			continue;
+		}
+		AddBody(SatelliteFromTable(parent, row, radius));
+	}
+}
+
+SolarBody* SolarSystem::GetBody(std::string_view bodyName) {
+	for (auto& body : bodies) {
+		if (body->GetName() == bodyName) {
+			return body.get();
+		}
+	}
+	return nullptr;
 }
 
 SolarBody* SolarSystem::AddBody(SolarBody* newSolarBody) {
+	std::cout << "Added body [" << newSolarBody->GetName() << "]" << std::endl;
 	return bodies.emplace_back(newSolarBody).get();
 }

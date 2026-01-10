@@ -72,9 +72,9 @@ VkDescriptorSet DescriptorAllocator::Allocate(VkDevice device, VkDescriptorSetLa
     return ds;
 }
 
-bool LoadShaderModule(const std::string& shaderPath, VkDevice device, VkShaderModule* outShaderModule) {
+bool LoadShaderModule(std::string_view shaderPath, VkDevice device, VkShaderModule* outShaderModule) {
     // open the file. With cursor at the end
-    const auto& fullPath = std::filesystem::current_path() / "assets" / "shaders" / (shaderPath + ".spv");
+    const auto& fullPath = std::filesystem::current_path() / "assets" / "shaders" / (std::string(shaderPath) + ".spv");
     std::ifstream file(fullPath, std::ios::ate | std::ios::binary);
 
     if (!file.is_open()) {

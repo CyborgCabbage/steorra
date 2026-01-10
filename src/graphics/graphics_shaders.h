@@ -26,4 +26,4 @@ struct DescriptorAllocator {
     VkDescriptorSet Allocate(VkDevice device, VkDescriptorSetLayout layout);
 };
 
-bool LoadShaderModule(const std::string& filePath, VkDevice device, VkShaderModule* outShaderModule);
+bool LoadShaderModule(std::string_view filePath, VkDevice device, VkShaderModule* outShaderModule);

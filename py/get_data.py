@@ -1,15 +1,16 @@
+import spiceypy as spice
+print(spice.tkvrsn("TOOLKIT"))
+spice.furnsh("./data/naif0012.tls.pc")
+spice.furnsh("./data/pck00011.tpc")
+spice.furnsh("./data/gm_de440.tpc")
+print(spice.bodvrd("10", "RADII", 3))
+
+from astropy.table import Table
 from astroquery.jplhorizons import Horizons
-obj = Horizons(id='1', epochs=2461041.5000000)
-elements = obj.elements()
-lines = obj._raw_response.split('\n')
-dividers = [i for i, line in enumerate(lines) if line.startswith('*')]
-allValues = {}
-for i in range(dividers[0]+1,dividers[1]):
-    line = lines[i]
-    if line.startswith('GEOPHYSICAL PROPERTIES')
-    count = .count('=')
-    if count == 1:
-        pair = lines[i].split('=')
-        allValues[pair[0]] = pair[1]
-        
-        
+# BaryCenters
+def GetOrbitWithRespectToBody(body_string, location_string):
+    
+obj = Horizons(id='1', location='SSB', epochs={'start':'2200-01-01', 'stop':'2300-01-01', 'step':'5d'})
+e = obj.elements()
+e.remove_columns(['targetname', 'datetime_jd', 'datetime_str'])
+e.write('1-0.hdf5', path='output', overwrite=True, serialize_meta=False, compressed=True)
